@@ -233,3 +233,9 @@ venv/
 *.pem
 *.key
 credentials.json
+
+# Frontend (Node.js / Vue 3) Custom Ignores
+node_modules/
+**/node_modules/
+/frontend/dist/
+/frontend/.cache/
