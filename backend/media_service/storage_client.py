@@ -1,9 +1,19 @@
 from __future__ import annotations
 
+import os
 from urllib.parse import quote
 
 
-DEFAULT_MEDIA_BUCKET = "pending-media-bucket"
+DEFAULT_MEDIA_BUCKET_FALLBACK = "pending-media-bucket"
+DEFAULT_STORAGE_PROVIDER_FALLBACK = "gcp"
+
+
+def get_media_bucket() -> str:
+    return os.getenv("MEDIA_BUCKET", DEFAULT_MEDIA_BUCKET_FALLBACK)
+
+
+def get_media_storage_provider() -> str:
+    return os.getenv("MEDIA_STORAGE_PROVIDER", DEFAULT_STORAGE_PROVIDER_FALLBACK)
 
 
 def generate_upload_url(bucket: str, object_path: str, content_type: str) -> str:
