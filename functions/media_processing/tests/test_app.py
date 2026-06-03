@@ -11,6 +11,15 @@ import app as media_app
 VALID_CHECKSUM = "c" * 64
 
 
+def test_health_returns_ok():
+    client = TestClient(media_app.app)
+
+    response = client.get("/health")
+
+    assert response.status_code == 200
+    assert response.json() == {"status": "ok"}
+
+
 def make_infer_payload(**overrides):
     payload = {
         "file_id": VALID_CHECKSUM,

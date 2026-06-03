@@ -11,6 +11,7 @@ This module remains local and testable. It does not store AWS credentials, downl
 Implemented in this skeleton:
 
 - FastAPI `POST /infer` HTTP interface for the future Cloud Run service
+- FastAPI `GET /health` readiness endpoint for Cloud Run checks
 - fake detector and model version placeholder
 - image tag count aggregation and primary species selection
 - video per-frame tag aggregation using the maximum species count across sampled frames
@@ -47,6 +48,27 @@ Response fields:
 - `error` optional
 
 Current placeholder behavior returns `status="ready"` for supported image/video requests and uses the fake detector. Unsupported `file_type` values fail request validation.
+
+## Cloud Run Deployment Preparation
+
+This directory now includes a Cloud Run-ready `Dockerfile` and `.dockerignore`.
+
+The container starts the FastAPI service with `uvicorn`:
+
+```bash
+uvicorn app:app --host 0.0.0.0 --port ${PORT:-8080}
+```
+
+The `PORT` environment variable is read by the container command, with `8080` as the local fallback.
+
+Current endpoints:
+
+- `GET /health` returns `{"status": "ok"}`.
+- `POST /infer` returns placeholder inference results matching the ML API contract.
+
+After deployment, the Cloud Run service URL must be shared with Member A so the AWS Lambda coordinator can call `POST /infer`.
+
+This stage does not deploy to Cloud Run and does not add credentials.
 
 ## Responsibilities
 

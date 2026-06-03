@@ -57,6 +57,11 @@ class InferenceResponse(BaseModel):
 app = FastAPI(title="WildLens Media Inference Service", version="0.1.0")
 
 
+@app.get("/health")
+def health_check() -> dict[str, str]:
+    return {"status": "ok"}
+
+
 @app.post("/infer", response_model=InferenceResponse)
 def infer_media(request: InferenceRequest) -> InferenceResponse:
     """Return placeholder media inference results for the AWS Lambda coordinator."""
