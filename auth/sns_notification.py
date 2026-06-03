@@ -73,3 +73,58 @@ You are receiving this notification because you subscribed to updates for '{tag_
     
     print(f"Tag update notification sent for '{tag_name}': {response['MessageId']}")
     return response
+
+def lambda_handler(event, context):
+    """
+    Lambda entry point for SNS notifications
+    
+    Event format for new file upload:
+    {
+        "action": "notify_upload",
+        "tag_name": "koala",
+        "file_url": "https://...",
+        "file_type": "image"
+    }
+    
+    Event format for tag update:
+    {
+        "action": "notify_tag_update",
+        "tag_name": "koala",
+        "file_url": "https://...",
+        "operation": 1
+    }
+    
+    Event format for new subscription:
+    {
+        "action": "subscribe",
+        "email": "user@example.com",
+        "tag_name": "koala"
+    }
+    """
+    action = event.get('action')
+    
+    if action == 'notify_upload':
+        return notify_subscribers(
+            event['tag_name'],
+            event['file_url'],
+            event['file_type']
+        )
+    
+    elif action == 'notify_tag_update':
+        return notify_tag_updated(
+            event['tag_name'],
+            event['file_url'],
+            event['operation']
+        )
+    
+    elif action == 'subscribe':
+        return subscribe_email_to_tag(
+            event['email'],
+            event['tag_name']
+        )
+    
+    else:
+        return {
+            'statusCode': 400,
+            'body': 'Invalid action'
+        }
