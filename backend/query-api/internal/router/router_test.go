@@ -221,3 +221,78 @@ func TestFindOriginalByThumbnailURL(t *testing.T) {
 		)
 	}
 }
+
+func TestFindBySpeciesRejectsMissingSpecies(t *testing.T) {
+	engine := newTestEngine()
+
+	response := performJSONRequest(
+		engine,
+		http.MethodPost,
+		"/api/v1/query/species",
+		`{}`,
+	)
+
+	if response.Code != http.StatusBadRequest {
+		t.Fatalf("expected status 400, got %d", response.Code)
+	}
+}
+
+func TestFindBySpeciesRejectsInvalidJSON(t *testing.T) {
+	engine := newTestEngine()
+
+	response := performJSONRequest(
+		engine,
+		http.MethodPost,
+		"/api/v1/query/species",
+		`{"species":`,
+	)
+
+	if response.Code != http.StatusBadRequest {
+		t.Fatalf("expected status 400, got %d", response.Code)
+	}
+}
+
+func TestFindByTagCountsRejectsEmptyConditions(t *testing.T) {
+	engine := newTestEngine()
+
+	response := performJSONRequest(
+		engine,
+		http.MethodPost,
+		"/api/v1/query/tags",
+		`{}`,
+	)
+
+	if response.Code != http.StatusBadRequest {
+		t.Fatalf("expected status 400, got %d", response.Code)
+	}
+}
+
+func TestFindByTagCountsRejectsInvalidMinimumCount(t *testing.T) {
+	engine := newTestEngine()
+
+	response := performJSONRequest(
+		engine,
+		http.MethodPost,
+		"/api/v1/query/tags",
+		`{"koala":0}`,
+	)
+
+	if response.Code != http.StatusBadRequest {
+		t.Fatalf("expected status 400, got %d", response.Code)
+	}
+}
+
+func TestFindOriginalByThumbnailURLReturnsNotFound(t *testing.T) {
+	engine := newTestEngine()
+
+	response := performJSONRequest(
+		engine,
+		http.MethodPost,
+		"/api/v1/query/thumbnail",
+		`{"thumbnail_url":"s3://wildlens-media/media/thumbnails/missing.jpg"}`,
+	)
+
+	if response.Code != http.StatusNotFound {
+		t.Fatalf("expected status 404, got %d", response.Code)
+	}
+}
