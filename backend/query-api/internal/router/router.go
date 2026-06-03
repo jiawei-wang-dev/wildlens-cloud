@@ -1,0 +1,23 @@
+package router
+
+import (
+	"github.com/gin-gonic/gin"
+
+	"github.com/jiawei-wang-dev/wildlens-cloud/backend/query-api/internal/handler"
+)
+
+// New creates the HTTP router and registers API endpoints.
+func New(queryHandler *handler.QueryHandler) *gin.Engine {
+	engine := gin.Default()
+
+	engine.GET("/health", handler.Health)
+
+	api := engine.Group("/api/v1")
+	{
+		api.POST("/query/species", queryHandler.FindBySpecies)
+		api.POST("/query/tags", queryHandler.FindByTagCounts)
+		api.POST("/query/thumbnail", queryHandler.FindOriginalByThumbnailURL)
+	}
+
+	return engine
+}
