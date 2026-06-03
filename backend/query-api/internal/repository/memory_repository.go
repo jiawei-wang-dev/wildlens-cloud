@@ -79,3 +79,32 @@ func (r *MemoryRepository) FindOriginalByThumbnailURL(
 
 	return "", ErrMediaNotFound
 }
+
+// UpdateTags adds or removes tags for media files matching the supplied URLs.
+func (r *MemoryRepository) UpdateTags(
+	_ context.Context,
+	urls []string,
+	tags []string,
+	operation int,
+) ([]model.MediaFile, error) {
+	targetURLs := newURLSet(urls)
+	updatedFiles := make([]model.MediaFile, 0)
+
+	for index := range r.files {
+		if !matchesMediaURL(r.files[index], targetURLs) {
+			continue
+		}
+
+		if err := applyTagUpdate(
+			&r.files[index],
+			tags,
+			operation,
+		); err != nil {
+			return nil, err
+		}
+
+		updatedFiles = append(updatedFiles, r.files[index])
+	}
+
+	return updatedFiles, nil
+}
