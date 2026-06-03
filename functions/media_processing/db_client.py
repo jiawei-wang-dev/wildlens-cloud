@@ -12,7 +12,7 @@ class FakeDbClient:
         self.records: Dict[str, MediaMetadata] = {}
 
     def save_media_metadata(self, metadata: MediaMetadata) -> MediaMetadata:
-        # TODO: Replace with Firestore, DynamoDB, or the team-agreed database client.
+        # TODO: Replace with Firestore or the team-agreed metadata database client.
         self.records[metadata.file_id] = metadata
         return metadata
 
