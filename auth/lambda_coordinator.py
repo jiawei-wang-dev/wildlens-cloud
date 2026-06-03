@@ -96,3 +96,55 @@ def trigger_sns_notification(tag_name, file_url, file_type):
             Payload=json.dumps(payload)
         )
         print(f"SNS notification triggered for tag: {tag}")
+
+def lambda_handler(event, context):
+    """
+    Lambda entry point - triggered by S3 upload event
+    """
+    for record in event['Records']:
+        bucket = record['s3']['bucket']['name']
+        key = record['s3']['object']['key']
+        
+        print(f"Processing file: s3://{bucket}/{key}")
+        
+        # Generate file_id from checksum
+        file_id = key.split('/')[-1].split('.')[0]
+        
+        # Check for duplicate
+        if check_duplicate(file_id):
+            print(f"Duplicate file detected: {file_id}, skipping...")
+            continue
+        
+        # Determine file type
+        file_type = 'video' if key.lower().endswith(('.mp4', '.avi', '.mov')) else 'image'
+        
+        # Generate presigned URL for GCP
+        presigned_url = get_s3_presigned_url(bucket, key)
+        
+        # Call GCP Cloud Run for ML inference
+        infer_result = call_gcp_infer(presigned_url, file_type)
+        
+        if infer_result:
+            # Write results to DynamoDB
+            file_url = write_to_dynamodb(
+                file_id=file_id,
+                bucket=bucket,
+                key=key,
+                file_type=file_type,
+                tags=infer_result.get('tags', []),
+                tag_counts=infer_result.get('tag_counts', {}),
+                primary_species=infer_result.get('primary_species', ''),
+                model_version=infer_result.get('model_version', ''),
+                thumbnail_path=infer_result.get('thumbnail_object_path', '')
+            )
+            
+            # Trigger SNS notifications
+            trigger_sns_notification(
+                infer_result.get('tags', []),
+                file_url,
+                file_type
+            )
+        else:
+            print(f"Inference failed for {file_id}, skipping DynamoDB write")
+    
+    return {'statusCode': 200, 'body': 'Processing complete'}
