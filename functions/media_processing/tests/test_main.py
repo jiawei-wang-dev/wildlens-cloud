@@ -115,8 +115,8 @@ def test_image_metadata_has_thumbnail_object_path_and_final_object_path():
     assert metadata["object_path"] == expected_object_path
     assert metadata["object_path"] != event["name"]
     assert metadata["thumbnail_object_path"] == expected_thumbnail_path
-    assert metadata["file_url"] == f"gs://wildlens-test/{expected_object_path}"
-    assert metadata["thumbnail_url"] == f"gs://wildlens-test/{expected_thumbnail_path}"
+    assert metadata["file_url"] == f"s3://wildlens-test/{expected_object_path}"
+    assert metadata["thumbnail_url"] == f"s3://wildlens-test/{expected_thumbnail_path}"
 
 
 def test_unknown_file_type_does_not_call_detector_and_fails_safely():

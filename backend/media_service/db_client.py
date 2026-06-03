@@ -13,13 +13,14 @@ class ExistingMediaRecord:
 
 
 class FakeMediaDbClient:
-    """In-memory placeholder for future Firestore-backed checksum lookups."""
+    """In-memory placeholder for future DynamoDB-backed checksum lookups."""
 
     def __init__(self, records: Optional[Dict[str, ExistingMediaRecord]] = None) -> None:
         self.records: Dict[str, ExistingMediaRecord] = records or {}
 
     def find_by_checksum(self, checksum_sha256: str) -> Optional[ExistingMediaRecord]:
-        # TODO: Replace with Firestore lookup keyed by checksum_sha256/file_id.
+        # TODO: Replace with DynamoDB GetItem on table
+        # fit5225-wildlife-media-metadata using file_id=checksum_sha256.
         return self.records.get(checksum_sha256)
 
 

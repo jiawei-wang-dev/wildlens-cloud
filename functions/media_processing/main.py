@@ -72,7 +72,7 @@ def process_event(
     detector=detect_image,
     db_client: Optional[FakeDbClient] = None,
 ) -> dict:
-    """Local skeleton for a GCP Cloud Storage object event handler."""
+    """Legacy local helper for tests; production uses Cloud Run POST /infer."""
     storage_client = storage_client or FakeStorageClient()
     db_client = db_client or FakeDbClient()
 
@@ -108,8 +108,9 @@ def process_event(
 
     local_path = storage_client.download_object(bucket, object_name)
 
-    # TODO: For images, generate and upload a thumbnail to thumbnails/.
-    # TODO: For videos, extract 1 FPS frames and upload a poster/frames to video-posters/.
+    # TODO: Move final orchestration to the AWS Lambda coordinator and Cloud Run /infer flow.
+    # TODO: For images, generate and upload a thumbnail through coordinator-provided URLs.
+    # TODO: For videos, extract 1 FPS frames and upload a poster/frames through agreed URLs.
     # TODO: Add checksum-based deduplication before expensive media processing.
     raw_detections = detector(local_path)
     sampled_frame_count = None
@@ -134,11 +135,11 @@ def process_event(
         mime_type=mime_type,
         checksum_sha256=checksum_sha256,
         size=_parse_size(event.get("size")),
-        storage_provider="gcp",
+        storage_provider="s3",
         bucket=bucket or "",
         object_path=final_object_path,
-        file_url=f"gs://{bucket}/{final_object_path}",
-        thumbnail_url=f"gs://{bucket}/{thumbnail_object_path}" if thumbnail_object_path else None,
+        file_url=f"s3://{bucket}/{final_object_path}",
+        thumbnail_url=f"s3://{bucket}/{thumbnail_object_path}" if thumbnail_object_path else None,
         thumbnail_object_path=thumbnail_object_path,
         tags=sorted(tag_counts),
         tag_counts=tag_counts,
