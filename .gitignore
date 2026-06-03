@@ -234,6 +234,12 @@ venv/
 *.key
 credentials.json
 
+
+.env
+.env.*
+!.env.example
+
+
 # Frontend (Node.js / Vue 3) Custom Ignores
 node_modules/
 **/node_modules/
