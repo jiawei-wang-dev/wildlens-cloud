@@ -57,6 +57,15 @@ def choose_primary_species(tag_counts: Dict[str, int]) -> Optional[str]:
     return sorted(tag_counts.items(), key=lambda item: (-item[1], item[0]))[0][0]
 
 
+def build_final_object_path(primary_species: Optional[str], checksum_sha256: str, filename: str) -> str:
+    species_path = primary_species or "unknown"
+    return f"media/originals/{species_path}/{checksum_sha256}/{filename}"
+
+
+def build_thumbnail_object_path(checksum_sha256: str) -> str:
+    return f"media/thumbnails/{checksum_sha256}.jpg"
+
+
 def process_event(
     event: dict,
     storage_client: Optional[FakeStorageClient] = None,
@@ -80,12 +89,24 @@ def process_event(
         )
         return asdict(result)
 
-    local_path = storage_client.download_object(bucket, object_name)
     checksum_sha256 = event.get("metadata", {}).get("checksum_sha256")
     file_id = checksum_sha256 or event.get("metadata", {}).get("file_id") or Path(object_name).stem
     now = datetime.now(timezone.utc).isoformat()
     mime_type = event.get("contentType")
     file_type = _infer_file_type(object_name, mime_type)
+
+    if file_type == "unknown":
+        result = ProcessingResult(
+            processed=False,
+            status="failed",
+            bucket=bucket,
+            object_name=object_name,
+            file_id=file_id,
+            message="Unsupported media file type.",
+        )
+        return asdict(result)
+
+    local_path = storage_client.download_object(bucket, object_name)
 
     # TODO: For images, generate and upload a thumbnail to thumbnails/.
     # TODO: For videos, extract 1 FPS frames and upload a poster/frames to video-posters/.
@@ -101,26 +122,29 @@ def process_event(
         detections = raw_detections
         tag_counts = aggregate_tag_counts(detections)
     primary_species = choose_primary_species(tag_counts)
+    original_filename = Path(object_name).name
+    final_object_path = build_final_object_path(primary_species, file_id, original_filename)
+    thumbnail_object_path = build_thumbnail_object_path(file_id) if file_type == "image" else None
 
     metadata = MediaMetadata(
         file_id=file_id,
         owner_id=event.get("metadata", {}).get("owner_id"),
-        original_filename=Path(object_name).name,
+        original_filename=original_filename,
         file_type=file_type,
         mime_type=mime_type,
         checksum_sha256=checksum_sha256,
         size=_parse_size(event.get("size")),
         storage_provider="gcp",
         bucket=bucket or "",
-        object_path=object_name,
-        file_url=f"fake://{bucket}/{object_name}",
-        thumbnail_url=None,
-        thumbnail_object_path=None,
+        object_path=final_object_path,
+        file_url=f"gs://{bucket}/{final_object_path}",
+        thumbnail_url=f"gs://{bucket}/{thumbnail_object_path}" if thumbnail_object_path else None,
+        thumbnail_object_path=thumbnail_object_path,
         tags=sorted(tag_counts),
         tag_counts=tag_counts,
         primary_species=primary_species,
         model_version=MODEL_VERSION,
-        status="complete",
+        status="ready",
         created_at=now,
         updated_at=now,
         sampled_frame_rate_fps=1.0 if file_type == "video" else None,
@@ -131,7 +155,7 @@ def process_event(
 
     result = ProcessingResult(
         processed=True,
-        status="complete",
+        status="ready",
         bucket=bucket,
         object_name=object_name,
         file_id=file_id,
@@ -143,6 +167,8 @@ def process_event(
             "tag_counts": tag_counts,
             "primary_species": primary_species,
             "sampled_frame_count": sampled_frame_count,
+            "final_object_path": final_object_path,
+            "thumbnail_object_path": thumbnail_object_path,
         },
     )
     return asdict(result)
