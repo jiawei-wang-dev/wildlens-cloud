@@ -53,3 +53,46 @@ def write_to_dynamodb(file_id, bucket, key, file_type, tags, tag_counts, primary
     table.put_item(Item=item)
     print(f"Written to DynamoDB: {file_id}")
     return file_url
+
+def call_gcp_infer(presigned_url, file_type):
+    """Call GCP Cloud Run ML inference service"""
+    if GCP_INFER_URL == "PLACEHOLDER_REPLACE_WITH_GCP_URL":
+        print("WARNING: GCP inference URL not configured yet")
+        return None
+    
+    payload = {
+        "file_url": presigned_url,
+        "file_type": file_type
+    }
+    
+    response = requests.post(
+        GCP_INFER_URL,
+        json=payload,
+        timeout=60
+    )
+    
+    if response.status_code == 200:
+        result = response.json()
+        print(f"GCP inference result: {result}")
+        return result
+    else:
+        print(f"GCP inference failed: {response.status_code}")
+        return None
+
+
+def trigger_sns_notification(tag_name, file_url, file_type):
+    """Trigger SNS notification Lambda for each detected tag"""
+    for tag in tag_name:
+        payload = {
+            "action": "notify_upload",
+            "tag_name": tag,
+            "file_url": file_url,
+            "file_type": file_type
+        }
+        
+        lambda_client.invoke(
+            FunctionName=SNS_NOTIFICATION_FUNCTION,
+            InvocationType='Event',
+            Payload=json.dumps(payload)
+        )
+        print(f"SNS notification triggered for tag: {tag}")
