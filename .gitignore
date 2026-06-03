@@ -233,3 +233,7 @@ venv/
 *.pem
 *.key
 credentials.json
+
+.env
+.env.*
+!.env.example
