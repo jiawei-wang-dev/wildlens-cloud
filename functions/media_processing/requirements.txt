@@ -1,3 +1,7 @@
 pytest
+fastapi
+httpx
+pydantic
+uvicorn[standard]
 pillow
 opencv-python

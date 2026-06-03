@@ -1,0 +1,14 @@
+__pycache__/
+*.pyc
+.pytest_cache/
+venv/
+.venv/
+.env
+*.pt
+*.pth
+*.onnx
+*.h5
+*.pkl
+*.zip
+models/
+model/

@@ -1,71 +1,117 @@
 # Media Processing
 
-This module is the first-stage local skeleton for Member B's File Handling and Model Handling work in WildLens Cloud.
+This module is the local skeleton for Member B's GCP Cloud Run media inference service.
+
+The final team architecture uses AWS S3 as the formal media bucket. Frontend upload goes to S3, an S3 object-created event triggers the AWS Lambda coordinator, and the Lambda coordinator calls this Cloud Run service over HTTP at `POST /infer`.
+
+This module remains local and testable. It does not store AWS credentials, download real S3 objects, upload real thumbnails, write DynamoDB, call SNS, or run a real ML model.
 
 ## Current Scope
 
-The code is designed to be testable locally and does not connect to real cloud services.
-
 Implemented in this skeleton:
 
-- GCP Cloud Storage object event routing shape in `main.py`
-- `incoming/` object filtering to avoid trigger loops
-- fake storage client methods for download, upload, and move
-- fake database metadata save
-- fake image detector
+- FastAPI `POST /infer` HTTP interface for the future Cloud Run service
+- FastAPI `GET /health` readiness endpoint for Cloud Run checks
+- fake detector and model version placeholder
 - image tag count aggregation and primary species selection
 - video per-frame tag aggregation using the maximum species count across sampled frames
-- planned final object path and thumbnail object path builders for Stage 3 storage integration
-- image thumbnail generation with aspect ratio preserved
-- video frame extraction at 1 frame per second
+- image thumbnail helper
+- video frame extraction helper at 1 frame per second
+- metadata/result models used by local tests and coordinator contract discussion
+- legacy `process_event()` helper for local tests only
 
-## Confirmed Member B to Member C Metadata Contract
+## Cloud Run `/infer` Contract
 
-Member C confirmed this contract for the future database schema. The current code keeps fake local clients and does not implement real Firestore yet.
+The AWS Lambda coordinator is expected to call `/infer` with object metadata and temporary access URLs when real integration begins.
 
-- `file_id` is `checksum_sha256`. If a local test event omits the checksum, the skeleton falls back to legacy metadata or the object stem only so local processing can still run.
-- `tag_counts` is stored as a map/object, for example `{"koala": 3, "wombat": 1}`.
-- Keep both `file_url` and `thumbnail_url`.
-- Also store `bucket`, `object_path`, and `thumbnail_object_path` so deletion does not depend on expiring signed URLs.
-- Successful processed metadata uses `status="ready"`.
-- Successful processed metadata uses the planned final object path format `media/originals/{primary_species}/{checksum_sha256}/{filename}` instead of the incoming object path.
-- Image metadata includes `thumbnail_object_path` using `media/thumbnails/{checksum_sha256}.jpg`.
-- For images, aggregate detections by summing counts for matching labels in the image.
-- For videos, extract one frame per second. `tags` is the union of labels across sampled frames, and `tag_counts` stores the maximum detected count per species across sampled frames, not the sum across all frames.
-- Optional video metadata fields may include `duration_seconds`, `sampled_frame_rate_fps`, `sampled_frame_count`, and `frame_object_paths`.
+Request fields:
 
-## Pre-Stage 3 Storage Notes
+- `file_id`
+- `bucket`
+- `object_path`
+- `filename`
+- `file_type`
+- `mime_type`
+- `checksum_sha256`
+- `download_url` optional
+- `thumbnail_upload_url` optional
 
-`process_event` still uses fake local clients. It does not truly download, upload, move, or delete GCS objects.
+Response fields:
 
-The path builders in `main.py` are preparation for Stage 3 GCP Storage integration only. Real storage movement from `incoming/` to `media/originals/`, thumbnail upload, and URL generation will be implemented later.
+- `file_id`
+- `tags`
+- `tag_counts`
+- `primary_species`
+- `model_version`
+- `status`
+- `thumbnail_object_path`
+- `error` optional
 
-Unsupported or unknown file types fail safely before detector execution.
+Current placeholder behavior returns `status="ready"` for supported image/video requests and uses the fake detector. Unsupported `file_type` values fail request validation.
+
+## Cloud Run Deployment Preparation
+
+This directory now includes a Cloud Run-ready `Dockerfile` and `.dockerignore`.
+
+The container starts the FastAPI service with `uvicorn`:
+
+```bash
+uvicorn app:app --host 0.0.0.0 --port ${PORT:-8080}
+```
+
+The `PORT` environment variable is read by the container command, with `8080` as the local fallback.
+
+Current endpoints:
+
+- `GET /health` returns `{"status": "ok"}`.
+- `POST /infer` returns placeholder inference results matching the ML API contract.
+
+After deployment, the Cloud Run service URL must be shared with Member A so the AWS Lambda coordinator can call `POST /infer`.
+
+This stage does not deploy to Cloud Run and does not add credentials.
+
+## Responsibilities
+
+This Cloud Run service will be responsible for media inference work:
+
+- thumbnail generation
+- video 1 FPS frame extraction
+- ML tagging
+- `tags`, `tag_counts`, `primary_species`, and `thumbnail_object_path` calculation
+
+The AWS Lambda coordinator remains responsible for:
+
+- reacting to S3 object-created events
+- passing download/upload URLs to Cloud Run
+- writing DynamoDB metadata to table `fit5225-wildlife-media-metadata`
+- triggering SNS
+
+## Legacy Helper
+
+`process_event()` is kept as a local test/legacy helper. It is not the final production trigger path.
+
+The final production entrypoint is Cloud Run HTTP `POST /infer`.
 
 ## TODO For Real Integration
 
-- Replace `FakeStorageClient` with GCP Cloud Storage operations.
-- Add checksum-based deduplication before expensive media processing, using `checksum_sha256`.
-- Move processed media from `incoming/` to `media/originals/`.
-- Upload generated thumbnails to `media/thumbnails/`.
-- Upload video poster or extracted frames to `video-posters/`.
-- Load model configuration from `MODEL_CONFIG_URI`.
+- Package and deploy the FastAPI service to GCP Cloud Run.
+- Let the AWS Lambda coordinator call `/infer`.
+- Use coordinator-provided download URLs instead of fake local paths.
+- Use coordinator-provided thumbnail upload URLs instead of fake paths.
 - Replace the fake detector with the selected wildlife ML model.
-- Replace `FakeDbClient` with the team-agreed metadata database. Firestore is likely, but not implemented in this skeleton.
-- Include Cognito owner information passed from the upload API metadata.
+- Return production-ready error details for failed inference.
+- Keep DynamoDB writes to `fit5225-wildlife-media-metadata` and SNS notifications in the AWS Lambda coordinator, not in this service.
 
 ## Running Tests
 
 Install dependencies for this module:
 
 ```bash
-pip install -r requirements.txt
+pip install -r functions/media_processing/requirements.txt
 ```
 
-Run tests from this directory:
+Run tests from the repository root:
 
 ```bash
-pytest
+python -m pytest functions/media_processing
 ```
-
-Video extraction uses `opencv-python`. The current tests focus on the stable local skeleton pieces; if test video generation is unreliable on a machine, keep video tests minimal until the final processing pipeline is agreed.
