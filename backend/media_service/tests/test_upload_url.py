@@ -1,3 +1,4 @@
+import pytest
 from fastapi.testclient import TestClient
 
 from backend.media_service.db_client import ExistingMediaRecord, FakeMediaDbClient
@@ -5,6 +6,7 @@ from backend.media_service.main import app, get_db_client
 
 
 AUTH_HEADERS = {"Authorization": "Bearer placeholder-token"}
+VALID_CHECKSUM = "a" * 64
 
 
 def make_request_payload(**overrides):
@@ -12,7 +14,7 @@ def make_request_payload(**overrides):
         "filename": "koala.jpg",
         "content_type": "image/jpeg",
         "size": 12345,
-        "checksum_sha256": "abc123checksum",
+        "checksum_sha256": VALID_CHECKSUM,
         "file_type": "image",
     }
     payload.update(overrides)
@@ -48,6 +50,18 @@ def test_missing_checksum_fails_validation():
     assert response.status_code == 422
 
 
+def test_invalid_checksum_fails_validation():
+    client = make_client(FakeMediaDbClient())
+
+    response = client.post(
+        "/media/upload-url",
+        json=make_request_payload(checksum_sha256="abc123checksum"),
+        headers=AUTH_HEADERS,
+    )
+
+    assert response.status_code == 422
+
+
 def test_invalid_file_type_fails_validation():
     client = make_client(FakeMediaDbClient())
 
@@ -60,14 +74,27 @@ def test_invalid_file_type_fails_validation():
     assert response.status_code == 422
 
 
+@pytest.mark.parametrize("filename", [" ", ".", "..", "../evil.jpg", "nested/evil.jpg", "nested\\evil.jpg"])
+def test_unsafe_filename_fails_validation(filename):
+    client = make_client(FakeMediaDbClient())
+
+    response = client.post(
+        "/media/upload-url",
+        json=make_request_payload(filename=filename),
+        headers=AUTH_HEADERS,
+    )
+
+    assert response.status_code == 422
+
+
 def test_duplicate_checksum_returns_duplicate_true():
     db_client = FakeMediaDbClient(
         {
-            "abc123checksum": ExistingMediaRecord(
-                file_id="abc123checksum",
-                checksum_sha256="abc123checksum",
-                file_url="fake://media/abc123checksum",
-                thumbnail_url="fake://thumbnails/abc123checksum.jpg",
+            VALID_CHECKSUM: ExistingMediaRecord(
+                file_id=VALID_CHECKSUM,
+                checksum_sha256=VALID_CHECKSUM,
+                file_url=f"fake://media/{VALID_CHECKSUM}",
+                thumbnail_url=f"fake://thumbnails/{VALID_CHECKSUM}.jpg",
             )
         }
     )
@@ -78,9 +105,9 @@ def test_duplicate_checksum_returns_duplicate_true():
     assert response.status_code == 200
     body = response.json()
     assert body["duplicate"] is True
-    assert body["file_id"] == "abc123checksum"
-    assert body["existing_file_url"] == "fake://media/abc123checksum"
-    assert body["existing_thumbnail_url"] == "fake://thumbnails/abc123checksum.jpg"
+    assert body["file_id"] == VALID_CHECKSUM
+    assert body["existing_file_url"] == f"fake://media/{VALID_CHECKSUM}"
+    assert body["existing_thumbnail_url"] == f"fake://thumbnails/{VALID_CHECKSUM}.jpg"
     assert body["message"]
 
 
@@ -91,7 +118,7 @@ def test_object_path_includes_owner_id_and_checksum():
 
     assert response.status_code == 200
     body = response.json()
-    assert body["object_path"] == "incoming/fake-user-id/abc123checksum/koala.jpg"
+    assert body["object_path"] == f"incoming/fake-user-id/{VALID_CHECKSUM}/koala.jpg"
 
 
 def test_file_id_equals_checksum_sha256():
@@ -100,4 +127,4 @@ def test_file_id_equals_checksum_sha256():
     response = client.post("/media/upload-url", json=make_request_payload(), headers=AUTH_HEADERS)
 
     assert response.status_code == 200
-    assert response.json()["file_id"] == "abc123checksum"
+    assert response.json()["file_id"] == VALID_CHECKSUM
