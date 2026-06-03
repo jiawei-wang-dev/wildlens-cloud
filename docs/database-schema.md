@@ -1,63 +1,117 @@
-# Database Schema Draft and Media Metadata Contract
+# WildLens Cloud DynamoDB Media Schema
 
-## Status
+## Table
 
-- Status: Draft
-- Final owner: Member C
-- Contributor: Member B provides the proposed media-processing output fields
-- Purpose: This document is a shared contract draft between media processing and query/database modules. It is not the final database design.
+Table name:
 
-## Scope
+```text
+fit5225-wildlife-media-metadata
+```
 
-Member C is responsible for the final database schema, database choice, indexing strategy, and query implementation.
+Partition key:
 
-Member B is responsible for producing media metadata after file processing, such as file URLs, thumbnail URLs, tags, tag_counts, model_version, and processing status.
+```text
+file_id
+```
 
-The fields below are proposed media metadata fields, not final database requirements.
+Partition key type:
 
-Final field names and storage structure must be confirmed with Member C.
+```text
+String
+```
 
-## Proposed Media Metadata Fields from Member B
+The first version does not require a sort key.
 
-The media-processing module may output the following metadata fields:
+## File ID
 
-| Field | Description |
-| --- | --- |
-| file_id | Unique media record identifier. |
-| owner_id | User identifier from AWS Cognito. |
-| original_filename | Original uploaded filename. |
-| file_type | Logical media type, such as image or video. |
-| mime_type | Uploaded file MIME type. |
-| checksum_sha256 | SHA-256 checksum used for deduplication. |
-| size | File size in bytes. |
-| storage_provider | Cloud storage provider, such as GCP. |
-| bucket | Storage bucket name. |
-| object_path | Object path or key inside the bucket. |
-| file_url | URL for the original uploaded media. |
-| thumbnail_url | URL for the generated thumbnail or preview image. |
-| tags | List of detected or assigned tags. |
-| tag_counts | Aggregated tag count map produced from ML inference. |
-| primary_species | Main detected species, if available. |
-| model_version | ML model version used for inference. |
-| status | Processing status, such as pending, processing, complete, failed, or deleted. |
-| created_at | Record creation timestamp. |
-| updated_at | Last update timestamp. |
+```text
+file_id = checksum_sha256
+```
 
-## Responsibility Boundary
+The SHA-256 checksum is used as the unique identifier of an uploaded file and helps prevent duplicate records.
 
-Member B does not own the final database schema.
+## Item Meaning
 
-Member B owns the media-processing output contract.
+Each DynamoDB item represents one original uploaded image or video.
 
-Member C decides how these fields are stored, indexed, queried, and updated.
+Video frames are temporary processing results. They should be aggregated before writing the final metadata record. Each extracted frame should not create a separate DynamoDB item.
 
-Member B and Member C must confirm `file_id`, `tag_counts`, `thumbnail_url`, `file_url`, `bucket`, and `object_path` before real database integration.
+## Media Item Example
 
-## Open Questions for Member C
+```json
+{
+  "file_id": "sha256-checksum",
+  "owner_id": "cognito-user-id",
+  "original_filename": "koala.jpg",
+  "file_type": "image",
+  "mime_type": "image/jpeg",
+  "checksum_sha256": "sha256-checksum",
 
-- Should `file_id` be the same as `checksum_sha256`?
-- Should `tag_counts` be stored as a map/object for AND + minimum count queries?
-- Should URLs be stored as `gs://` paths, signed URL sources, or public HTTPS URLs?
-- For deletion, does the query module need `bucket + object_path`, `file_url`, or both?
-- For videos, should `tag_counts` be aggregated across all sampled frames at 1 FPS?
-- Which database backend will be used?
+  "storage_provider": "aws",
+  "bucket": "fit5225-wildlife-media",
+  "object_path": "media/originals/koala.jpg",
+  "thumbnail_object_path": "media/thumbnails/koala.jpg",
+
+  "file_url": "s3://fit5225-wildlife-media/media/originals/koala.jpg",
+  "thumbnail_url": "s3://fit5225-wildlife-media/media/thumbnails/koala.jpg",
+
+  "tags": ["koala", "magpie"],
+  "tag_counts": {
+    "koala": 3,
+    "magpie": 1
+  },
+
+  "primary_species": "koala",
+  "model_version": "wildlife-v1",
+  "status": "ready",
+  "created_at": "2026-06-03T10:00:00Z",
+  "updated_at": "2026-06-03T10:00:00Z"
+}
+```
+
+## Field Types
+
+| Field                   | DynamoDB Type       | Description                                   |
+| ----------------------- | ------------------- | --------------------------------------------- |
+| `file_id`               | String              | SHA-256 checksum and partition key            |
+| `owner_id`              | String              | Cognito user ID                               |
+| `original_filename`     | String              | Original uploaded file name                   |
+| `file_type`             | String              | `image` or `video`                            |
+| `mime_type`             | String              | Example: `image/jpeg`                         |
+| `checksum_sha256`       | String              | File checksum                                 |
+| `storage_provider`      | String              | `aws`                                         |
+| `bucket`                | String              | S3 bucket name                                |
+| `object_path`           | String              | Original S3 object path                       |
+| `thumbnail_object_path` | String              | Thumbnail S3 object path for images           |
+| `file_url`              | String              | Original image or video URL                   |
+| `thumbnail_url`         | String              | Thumbnail URL for images                      |
+| `tags`                  | List<String>        | Deduplicated species list                     |
+| `tag_counts`            | Map<String, Number> | Species count map                             |
+| `primary_species`       | String              | Main detected species                         |
+| `model_version`         | String              | ML model configuration version                |
+| `status`                | String              | `pending`, `processing`, `ready`, or `failed` |
+| `created_at`            | String              | ISO 8601 timestamp                            |
+| `updated_at`            | String              | ISO 8601 timestamp                            |
+
+## Deletion Behaviour
+
+The first version does not use a `deleted` status.
+
+When a user deletes files, the system should remove:
+
+1. Original image or video objects from storage.
+2. Thumbnail objects from storage.
+3. Corresponding DynamoDB items.
+
+## Indexes
+
+The first version does not require a Global Secondary Index.
+
+The initial query service may use DynamoDB Scan and apply dynamic tag filters in the Go service.
+
+A future index may be added for user upload history:
+
+```text
+Partition key: owner_id
+Sort key: created_at
+```
