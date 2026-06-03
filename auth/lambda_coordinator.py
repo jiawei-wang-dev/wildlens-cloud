@@ -5,7 +5,7 @@ import requests
 from datetime import datetime
 
 # Configuration
-GCP_INFER_URL = "PLACEHOLDER_REPLACE_WITH_GCP_URL"
+GCP_INFER_URL = "https://wildlens-media-infer-343888474330.australia-southeast1.run.app/infer"
 DYNAMODB_TABLE = "fit5225-wildlife-media-metadata"
 SNS_NOTIFICATION_FUNCTION = "wildlife-sns-notification"
 
