@@ -24,6 +24,7 @@ class MediaMetadata:
     object_path: str
     file_url: str
     thumbnail_url: Optional[str]
+    thumbnail_object_path: Optional[str]
     tags: List[str]
     tag_counts: Dict[str, int]
     primary_species: Optional[str]
@@ -31,6 +32,10 @@ class MediaMetadata:
     status: str
     created_at: str
     updated_at: str
+    duration_seconds: Optional[float] = None
+    sampled_frame_rate_fps: Optional[float] = None
+    sampled_frame_count: Optional[int] = None
+    frame_object_paths: List[str] = field(default_factory=list)
 
 
 @dataclass
