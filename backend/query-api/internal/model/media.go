@@ -8,7 +8,7 @@ type MediaFile struct {
 	FileType            string         `json:"file_type" dynamodbav:"file_type"`
 	MimeType            string         `json:"mime_type,omitempty" dynamodbav:"mime_type,omitempty"`
 	ChecksumSHA256      string         `json:"checksum_sha256" dynamodbav:"checksum_sha256"`
-	StorageProvider string `json:"storage_provider,omitempty" dynamodbav:"storage_provider,omitempty"`
+	StorageProvider     string         `json:"storage_provider,omitempty" dynamodbav:"storage_provider,omitempty"`
 	Bucket              string         `json:"bucket" dynamodbav:"bucket"`
 	ObjectPath          string         `json:"object_path" dynamodbav:"object_path"`
 	ThumbnailObjectPath string         `json:"thumbnail_object_path,omitempty" dynamodbav:"thumbnail_object_path,omitempty"`
