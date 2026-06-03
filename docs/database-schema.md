@@ -1,63 +1,88 @@
-# Database Schema Draft and Media Metadata Contract
+# Database Schema and Media Metadata Contract
 
 ## Status
 
-- Status: Draft
-- Final owner: Member C
-- Contributor: Member B provides the proposed media-processing output fields
-- Purpose: This document is a shared contract draft between media processing and query/database modules. It is not the final database design.
+- Status: Confirmed v1 contract
+- Database owner: Member C
+- Media metadata producer: AWS Lambda coordinator, using results from Member B's Cloud Run inference service
+- Database backend: AWS DynamoDB
 
-## Scope
+This document records the agreed v1 metadata table contract for the hybrid AWS/GCP media pipeline.
 
-Member C is responsible for the final database schema, database choice, indexing strategy, and query implementation.
+## Hybrid Architecture Boundary
 
-Member B is responsible for producing media metadata after file processing, such as file URLs, thumbnail URLs, tags, tag_counts, model_version, and processing status.
+- AWS S3 is the official media bucket.
+- S3 object-created events trigger the AWS Lambda coordinator.
+- The AWS Lambda coordinator calls the GCP Cloud Run media inference service at `POST /infer`.
+- The GCP Cloud Run service returns inference results such as `tags`, `tag_counts`, `primary_species`, `thumbnail_object_path`, and `status`.
+- The AWS Lambda coordinator writes media metadata to DynamoDB and may trigger SNS notifications.
+- The GCP Cloud Run service does not write DynamoDB directly and does not store AWS credentials.
+- Member C's Go service reads, modifies, and deletes items from the same DynamoDB table.
 
-The fields below are proposed media metadata fields, not final database requirements.
+## DynamoDB Table
 
-Final field names and storage structure must be confirmed with Member C.
-
-## Proposed Media Metadata Fields from Member B
-
-The media-processing module may output the following metadata fields:
-
-| Field | Description |
+| Property | Value |
 | --- | --- |
-| file_id | Unique media record identifier. |
-| owner_id | User identifier from AWS Cognito. |
-| original_filename | Original uploaded filename. |
-| file_type | Logical media type, such as image or video. |
-| mime_type | Uploaded file MIME type. |
-| checksum_sha256 | SHA-256 checksum used for deduplication. |
-| size | File size in bytes. |
-| storage_provider | Cloud storage provider, such as GCP. |
-| bucket | Storage bucket name. |
-| object_path | Object path or key inside the bucket. |
-| file_url | URL for the original uploaded media. |
-| thumbnail_url | URL for the generated thumbnail or preview image. |
-| tags | List of detected or assigned tags. |
-| tag_counts | Aggregated tag count map produced from ML inference. |
-| primary_species | Main detected species, if available. |
-| model_version | ML model version used for inference. |
-| status | Processing status, such as pending, processing, complete, failed, or deleted. |
-| created_at | Record creation timestamp. |
-| updated_at | Last update timestamp. |
+| Table name | `fit5225-wildlife-media-metadata` |
+| Partition key | `file_id` |
+| Partition key type | String |
+| Sort key | None for v1 |
+| GSI | None for v1 |
+| Item model | One item per original image/video |
+
+`file_id` is equal to `checksum_sha256`.
+
+Video frame results are aggregated back into the original video item. The table should not store one item per sampled frame in v1.
+
+Deletion in v1 removes the S3 storage objects and the DynamoDB item. Do not use `deleted` as an active v1 status.
+
+## Media Metadata Fields
+
+| Field | Type / Shape | Description |
+| --- | --- | --- |
+| file_id | String | Primary identifier and DynamoDB partition key. Equal to `checksum_sha256`. |
+| owner_id | String | User identifier from AWS Cognito. |
+| original_filename | String | Original uploaded filename. |
+| file_type | String | Logical media type, `image` or `video`. |
+| mime_type | String | Uploaded file MIME type. |
+| checksum_sha256 | String | 64-character SHA-256 checksum used for deduplication. |
+| size | Number | File size in bytes. |
+| storage_provider | String | Storage provider for the official media object, expected to be `s3` for v1. |
+| bucket | String | S3 bucket name. |
+| object_path | String | Object key inside the bucket. |
+| thumbnail_object_path | String or null | Thumbnail or preview object key inside the bucket. |
+| file_url | String | URL or URI for the original uploaded media. |
+| thumbnail_url | String or null | URL or URI for the generated thumbnail or preview image. |
+| tags | List<String> | Deduplicated list of detected tags. |
+| tag_counts | Map<String, Number> | Aggregated tag count map produced from ML inference. |
+| primary_species | String or null | Main detected species, if available. |
+| model_version | String or null | ML model version used for inference. |
+| status | String | One of `pending`, `processing`, `ready`, or `failed`. |
+| created_at | String | Record creation timestamp. |
+| updated_at | String | Last update timestamp. |
+
+## Video Aggregation
+
+For videos, the Cloud Run inference service samples frames at 1 FPS. The response `tags` field is the union of sampled frame tags. The response `tag_counts` field uses the maximum detected count per species across sampled frames, not the sum across all frames.
 
 ## Responsibility Boundary
 
-Member B does not own the final database schema.
+AWS Lambda coordinator:
 
-Member B owns the media-processing output contract.
+- handles S3 object-created events
+- calls GCP Cloud Run `POST /infer`
+- writes items to DynamoDB table `fit5225-wildlife-media-metadata`
+- may trigger SNS notifications
 
-Member C decides how these fields are stored, indexed, queried, and updated.
+GCP Cloud Run media inference service:
 
-Member B and Member C must confirm `file_id`, `tag_counts`, `thumbnail_url`, `file_url`, `bucket`, and `object_path` before real database integration.
+- performs media processing and ML inference
+- returns inference results to the AWS Lambda coordinator
+- does not write DynamoDB directly
+- does not store AWS credentials
 
-## Open Questions for Member C
+Member C Go service:
 
-- Should `file_id` be the same as `checksum_sha256`?
-- Should `tag_counts` be stored as a map/object for AND + minimum count queries?
-- Should URLs be stored as `gs://` paths, signed URL sources, or public HTTPS URLs?
-- For deletion, does the query module need `bucket + object_path`, `file_url`, or both?
-- For videos, should `tag_counts` be aggregated across all sampled frames at 1 FPS?
-- Which database backend will be used?
+- reads media metadata from `fit5225-wildlife-media-metadata`
+- modifies supported fields as required by query/update workflows
+- deletes the DynamoDB item when deleting media metadata
