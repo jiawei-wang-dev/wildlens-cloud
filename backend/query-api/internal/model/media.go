@@ -2,24 +2,25 @@ package model
 
 // MediaFile represents an uploaded wildlife image or video.
 type MediaFile struct {
-	FileID              string         `json:"file_id"`
-	OwnerID             string         `json:"owner_id,omitempty"`
-	OriginalFilename    string         `json:"original_filename"`
-	FileType            string         `json:"file_type"`
-	MimeType            string         `json:"mime_type,omitempty"`
-	ChecksumSHA256      string         `json:"checksum_sha256"`
-	Bucket              string         `json:"bucket"`
-	ObjectPath          string         `json:"object_path"`
-	ThumbnailObjectPath string         `json:"thumbnail_object_path,omitempty"`
-	FileURL             string         `json:"file_url"`
-	ThumbnailURL        string         `json:"thumbnail_url,omitempty"`
-	Tags                []string       `json:"tags"`
-	TagCounts           map[string]int `json:"tag_counts"`
-	PrimarySpecies      string         `json:"primary_species,omitempty"`
-	ModelVersion        string         `json:"model_version,omitempty"`
-	Status              string         `json:"status"`
-	CreatedAt           string         `json:"created_at,omitempty"`
-	UpdatedAt           string         `json:"updated_at,omitempty"`
+	FileID              string         `json:"file_id" dynamodbav:"file_id"`
+	OwnerID             string         `json:"owner_id,omitempty" dynamodbav:"owner_id,omitempty"`
+	OriginalFilename    string         `json:"original_filename" dynamodbav:"original_filename"`
+	FileType            string         `json:"file_type" dynamodbav:"file_type"`
+	MimeType            string         `json:"mime_type,omitempty" dynamodbav:"mime_type,omitempty"`
+	ChecksumSHA256      string         `json:"checksum_sha256" dynamodbav:"checksum_sha256"`
+	StorageProvider string `json:"storage_provider,omitempty" dynamodbav:"storage_provider,omitempty"`
+	Bucket              string         `json:"bucket" dynamodbav:"bucket"`
+	ObjectPath          string         `json:"object_path" dynamodbav:"object_path"`
+	ThumbnailObjectPath string         `json:"thumbnail_object_path,omitempty" dynamodbav:"thumbnail_object_path,omitempty"`
+	FileURL             string         `json:"file_url" dynamodbav:"file_url"`
+	ThumbnailURL        string         `json:"thumbnail_url,omitempty" dynamodbav:"thumbnail_url,omitempty"`
+	Tags                []string       `json:"tags" dynamodbav:"tags"`
+	TagCounts           map[string]int `json:"tag_counts" dynamodbav:"tag_counts"`
+	PrimarySpecies      string         `json:"primary_species,omitempty" dynamodbav:"primary_species,omitempty"`
+	ModelVersion        string         `json:"model_version,omitempty" dynamodbav:"model_version,omitempty"`
+	Status              string         `json:"status" dynamodbav:"status"`
+	CreatedAt           string         `json:"created_at,omitempty" dynamodbav:"created_at,omitempty"`
+	UpdatedAt           string         `json:"updated_at,omitempty" dynamodbav:"updated_at,omitempty"`
 }
 
 // SpeciesQueryRequest searches for files containing a species.
