@@ -210,6 +210,96 @@ func TestDynamoDBRepositoryFindOriginalByThumbnailURL(t *testing.T) {
 	}
 }
 
+func TestDynamoDBRepositoryFindByURLsMatchesOriginalURL(t *testing.T) {
+	item := mustMarshalMediaFile(t, model.MediaFile{
+		FileID:       "checksum-image-001",
+		FileURL:      "s3://bucket/originals/koala.jpg",
+		ThumbnailURL: "s3://bucket/thumbnails/koala.jpg",
+		Status:       "ready",
+	})
+
+	client := &fakeDynamoDBClient{
+		pages: []*dynamodb.ScanOutput{
+			{
+				Items: []map[string]types.AttributeValue{
+					item,
+				},
+			},
+		},
+	}
+
+	repo := NewDynamoDBRepository(client, "test-table")
+
+	files, err := repo.FindByURLs(
+		context.Background(),
+		[]string{"s3://bucket/originals/koala.jpg"},
+	)
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+
+	if len(files) != 1 {
+		t.Fatalf("expected 1 file, got %d", len(files))
+	}
+
+	if files[0].FileID != "checksum-image-001" {
+		t.Fatalf("unexpected file ID: %s", files[0].FileID)
+	}
+}
+
+func TestDynamoDBRepositoryFindByURLsMatchesThumbnailURL(t *testing.T) {
+	item := mustMarshalMediaFile(t, model.MediaFile{
+		FileID:       "checksum-image-001",
+		FileURL:      "s3://bucket/originals/koala.jpg",
+		ThumbnailURL: "s3://bucket/thumbnails/koala.jpg",
+		Status:       "ready",
+	})
+
+	client := &fakeDynamoDBClient{
+		pages: []*dynamodb.ScanOutput{
+			{
+				Items: []map[string]types.AttributeValue{
+					item,
+				},
+			},
+		},
+	}
+
+	repo := NewDynamoDBRepository(client, "test-table")
+
+	files, err := repo.FindByURLs(
+		context.Background(),
+		[]string{"s3://bucket/thumbnails/koala.jpg"},
+	)
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+
+	if len(files) != 1 {
+		t.Fatalf("expected 1 file, got %d", len(files))
+	}
+
+	if files[0].FileID != "checksum-image-001" {
+		t.Fatalf("unexpected file ID: %s", files[0].FileID)
+	}
+}
+
+func TestDynamoDBRepositoryFindByURLsReturnsScanError(t *testing.T) {
+	client := &fakeDynamoDBClient{
+		err: errors.New("scan failed"),
+	}
+
+	repo := NewDynamoDBRepository(client, "test-table")
+
+	_, err := repo.FindByURLs(
+		context.Background(),
+		[]string{"s3://bucket/originals/koala.jpg"},
+	)
+	if err == nil {
+		t.Fatal("expected an error, got nil")
+	}
+}
+
 func TestDynamoDBRepositoryReturnsScanError(t *testing.T) {
 	client := &fakeDynamoDBClient{
 		err: errors.New("scan failed"),

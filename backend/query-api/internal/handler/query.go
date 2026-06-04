@@ -148,7 +148,7 @@ func (h *QueryHandler) UpdateTags(c *gin.Context) {
 	})
 }
 
-// DeleteFiles removes multiple media files by their stable IDs.
+// DeleteFiles removes multiple media files by their stable URLs.
 func (h *QueryHandler) DeleteFiles(c *gin.Context) {
 	var request model.FileDeleteRequest
 
@@ -161,12 +161,12 @@ func (h *QueryHandler) DeleteFiles(c *gin.Context) {
 
 	deletedFileIDs, err := h.service.DeleteFiles(
 		c.Request.Context(),
-		request.FileIDs,
+		request.URLs,
 	)
 	if err != nil {
 		status := http.StatusInternalServerError
 
-		if errors.Is(err, service.ErrFileIDsRequired) {
+		if errors.Is(err, service.ErrURLsRequired) {
 			status = http.StatusBadRequest
 		}
 

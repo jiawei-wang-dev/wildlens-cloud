@@ -187,7 +187,7 @@ The first local implementation uses `MemoryRepository`. DynamoDB persistence is 
 
 ## Bulk Media Deletion
 
-Deletes multiple media files by their stable file IDs.
+Deletes multiple media metadata records by their stable original or thumbnail URLs.
 
 ### Endpoint
 
@@ -209,28 +209,29 @@ Authentication middleware may be bypassed during local development.
 
 ```json
 {
-  "file_ids": [
-    "checksum-image-001",
-    "checksum-video-001"
+  "urls": [
+    "s3://wildlens-media/media/originals/koala.jpg",
+    "s3://wildlens-media/media/originals/wombat.mp4"
   ]
 }
 ```
 
 ### Request Fields
 
-| Field      | Type           | Required | Description                                                               |
-| ---------- | -------------- | -------- | ------------------------------------------------------------------------- |
-| `file_ids` | `List<String>` | Yes      | Stable media record IDs. Each `file_id` is based on the SHA-256 checksum. |
+| Field  | Type           | Required | Description                                        |
+| ------ | -------------- | -------- | -------------------------------------------------- |
+| `urls` | `List<String>` | Yes      | Stable original file URLs or thumbnail file URLs. |
 
 ### Business Rules
 
-* Duplicate file IDs are ignored.
-* Leading and trailing spaces are removed.
-* Unknown file IDs are ignored.
-* Empty file IDs are ignored.
-* The backend uses `file_id` rather than URLs because URLs may change or expire.
-* The production implementation removes the original S3 object, the thumbnail object when present, and the DynamoDB metadata record.
-* The local memory implementation removes only the in-memory metadata record.
+* The external API accepts `urls`, not `file_ids`.
+* Leading and trailing URL spaces are removed.
+* Duplicate URLs are ignored.
+* Unknown URLs are ignored without error.
+* Empty URLs are ignored.
+* If no valid URL remains after cleanup, the API returns `400 Bad Request`.
+* The backend still deletes DynamoDB metadata internally by using the matched metadata record's `file_id`.
+* The current version deletes metadata only. S3 original files, videos, and thumbnails will be deleted in a later integration.
 
 ### Successful Response
 
@@ -254,7 +255,7 @@ Response body:
 
 ### No Matching Records
 
-Unknown file IDs do not cause an error.
+Unknown URLs do not cause an error.
 
 Example response:
 
@@ -277,21 +278,22 @@ Example response:
 
 ```json
 {
-  "error": "at least one file_id is required"
+  "error": "at least one URL is required"
 }
 ```
 
 Invalid cases include:
 
-* `file_ids` is empty;
-* `file_ids` contains only whitespace;
+* `urls` is empty;
+* `urls` contains only whitespace;
+* `urls` is missing;
 * JSON body is invalid.
 
 ### Notes
 
 The first local implementation uses `MemoryRepository`.
 
-DynamoDB `DeleteItem` and S3 object deletion are added separately.
+DynamoDB metadata deletion uses `DeleteItem`. S3 object deletion is added separately.
 
 ## Observation List
 
@@ -373,3 +375,61 @@ Invalid cases include:
 The first implementation may use DynamoDB `Scan` followed by filtering and pagination in the Go service.
 
 The frontend contract remains unchanged if the backend later adds a DynamoDB Global Secondary Index or native DynamoDB cursor pagination.
+
+## Temporary Media Display URLs
+
+Private S3 object paths cannot be rendered directly by a browser.
+
+The observation list endpoint returns temporary HTTPS URLs for frontend display and download.
+
+### Response Fields
+
+| Field                   | Type   | Description                                                     |
+| ----------------------- | ------ | --------------------------------------------------------------- |
+| `thumbnail_display_url` | String | Temporary HTTPS URL used by the frontend to render a thumbnail. |
+| `file_download_url`     | String | Temporary HTTPS URL used to download the original media file.   |
+
+Example response item:
+
+```json
+{
+  "file_id": "checksum-image-001",
+  "bucket": "wildlens-media",
+  "object_path": "media/originals/koala.jpg",
+  "thumbnail_object_path": "media/thumbnails/koala.jpg",
+  "thumbnail_display_url": "https://temporary-signed-url",
+  "file_download_url": "https://temporary-signed-url"
+}
+```
+
+### Frontend Usage
+
+The frontend thumbnail component should use:
+
+```html
+<img :src="item.thumbnail_display_url" />
+```
+
+The frontend should not attempt to render:
+
+* `thumbnail_object_path`;
+* `object_path`;
+* `s3://...` URLs.
+
+### Storage Rules
+
+The database stores stable S3 fields:
+
+* `bucket`;
+* `object_path`;
+* `thumbnail_object_path`.
+
+Temporary display URLs are generated when the API returns data.
+
+Temporary URLs are not stored permanently in DynamoDB because they expire.
+
+### Local Development
+
+Local memory mode returns predictable placeholder HTTPS URLs.
+
+AWS deployment mode returns real S3 Presigned GET URLs.

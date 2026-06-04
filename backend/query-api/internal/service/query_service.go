@@ -3,7 +3,10 @@ package service
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
+
+	"github.com/jiawei-wang-dev/wildlens-cloud/backend/query-api/internal/storage"
 
 	"github.com/jiawei-wang-dev/wildlens-cloud/backend/query-api/internal/model"
 	"github.com/jiawei-wang-dev/wildlens-cloud/backend/query-api/internal/repository"
@@ -16,7 +19,6 @@ var (
 	ErrThumbnailURLRequired    = errors.New("thumbnail_url is required")
 	ErrURLsRequired            = errors.New("at least one URL is required")
 	ErrTagOperationRequired    = errors.New("operation is required")
-	ErrFileIDsRequired         = errors.New("at least one file_id is required")
 	ErrInvalidObservationLimit = errors.New(
 		"limit must be between 1 and 50",
 	)
@@ -24,11 +26,33 @@ var (
 
 // QueryService contains media query business logic.
 type QueryService struct {
-	repo repository.MediaRepository
+	repo      repository.MediaRepository
+	urlSigner storage.MediaURLSigner
 }
 
-func NewQueryService(repo repository.MediaRepository) *QueryService {
-	return &QueryService{repo: repo}
+// NewQueryService creates a query service with a local URL signer.
+func NewQueryService(
+	repo repository.MediaRepository,
+) *QueryService {
+	return NewQueryServiceWithURLSigner(
+		repo,
+		storage.NewStaticURLSigner(""),
+	)
+}
+
+// NewQueryServiceWithURLSigner creates a query service with a custom signer.
+func NewQueryServiceWithURLSigner(
+	repo repository.MediaRepository,
+	urlSigner storage.MediaURLSigner,
+) *QueryService {
+	if urlSigner == nil {
+		urlSigner = storage.NewStaticURLSigner("")
+	}
+
+	return &QueryService{
+		repo:      repo,
+		urlSigner: urlSigner,
+	}
 }
 
 func (s *QueryService) FindBySpecies(
@@ -126,26 +150,49 @@ func (s *QueryService) UpdateTags(
 	)
 }
 
-// DeleteFiles validates file IDs and removes matched media records.
+// DeleteFiles validates URLs and removes matched media records.
 func (s *QueryService) DeleteFiles(
 	ctx context.Context,
-	fileIDs []string,
+	urls []string,
 ) ([]string, error) {
-	cleanFileIDs := make([]string, 0, len(fileIDs))
+	cleanURLs := make([]string, 0, len(urls))
+	seenURLs := make(map[string]struct{})
 
-	for _, fileID := range fileIDs {
-		fileID = strings.TrimSpace(fileID)
+	for _, url := range urls {
+		url = strings.TrimSpace(url)
+
+		if url == "" {
+			continue
+		}
+
+		if _, exists := seenURLs[url]; exists {
+			continue
+		}
+
+		seenURLs[url] = struct{}{}
+		cleanURLs = append(cleanURLs, url)
+	}
+
+	if len(cleanURLs) == 0 {
+		return nil, ErrURLsRequired
+	}
+
+	files, err := s.repo.FindByURLs(ctx, cleanURLs)
+	if err != nil {
+		return nil, err
+	}
+
+	fileIDs := make([]string, 0, len(files))
+
+	for _, file := range files {
+		fileID := strings.TrimSpace(file.FileID)
 
 		if fileID != "" {
-			cleanFileIDs = append(cleanFileIDs, fileID)
+			fileIDs = append(fileIDs, fileID)
 		}
 	}
 
-	if len(cleanFileIDs) == 0 {
-		return nil, ErrFileIDsRequired
-	}
-
-	deletedFiles, err := s.repo.DeleteFiles(ctx, cleanFileIDs)
+	deletedFiles, err := s.repo.DeleteFiles(ctx, fileIDs)
 	if err != nil {
 		return nil, err
 	}
@@ -159,7 +206,7 @@ func (s *QueryService) DeleteFiles(
 	return deletedFileIDs, nil
 }
 
-// ListObservations validates list filters and returns one page.
+// ListObservations validates filters and adds temporary display URLs.
 func (s *QueryService) ListObservations(
 	ctx context.Context,
 	limit int,
@@ -173,7 +220,7 @@ func (s *QueryService) ListObservations(
 			ErrInvalidObservationLimit
 	}
 
-	return s.repo.ListObservations(
+	page, err := s.repo.ListObservations(
 		ctx,
 		repository.ObservationListOptions{
 			Limit:     limit,
@@ -183,4 +230,45 @@ func (s *QueryService) ListObservations(
 			Status:    strings.TrimSpace(status),
 		},
 	)
+	if err != nil {
+		return repository.ObservationPage{}, err
+	}
+
+	for index := range page.Items {
+		file := &page.Items[index]
+
+		if strings.TrimSpace(file.ObjectPath) != "" {
+			file.FileDownloadURL, err =
+				s.urlSigner.SignGetObjectURL(
+					ctx,
+					file.Bucket,
+					file.ObjectPath,
+				)
+			if err != nil {
+				return repository.ObservationPage{},
+					fmt.Errorf(
+						"sign file download URL: %w",
+						err,
+					)
+			}
+		}
+
+		if strings.TrimSpace(file.ThumbnailObjectPath) != "" {
+			file.ThumbnailDisplayURL, err =
+				s.urlSigner.SignGetObjectURL(
+					ctx,
+					file.Bucket,
+					file.ThumbnailObjectPath,
+				)
+			if err != nil {
+				return repository.ObservationPage{},
+					fmt.Errorf(
+						"sign thumbnail display URL: %w",
+						err,
+					)
+			}
+		}
+	}
+
+	return page, nil
 }

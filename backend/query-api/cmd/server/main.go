@@ -23,7 +23,15 @@ func main() {
 		log.Fatalf("create media repository: %v", err)
 	}
 
-	queryService := service.NewQueryService(repo)
+	urlSigner, err := buildMediaURLSigner(ctx, cfg)
+	if err != nil {
+		log.Fatalf("create media URL signer: %v", err)
+	}
+
+	queryService := service.NewQueryServiceWithURLSigner(
+		repo,
+		urlSigner,
+	)
 	queryHandler := handler.NewQueryHandler(queryService)
 
 	engine := router.New(queryHandler)

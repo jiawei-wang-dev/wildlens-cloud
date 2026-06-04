@@ -80,7 +80,14 @@ func (r *MemoryRepository) FindOriginalByThumbnailURL(
 	return "", ErrMediaNotFound
 }
 
-// UpdateTags adds or removes tags for media files matching the supplied URLs.
+// FindByURLs returns media metadata matching original or thumbnail URLs.
+func (r *MemoryRepository) FindByURLs(
+	_ context.Context,
+	urls []string,
+) ([]model.MediaFile, error) {
+	return findMediaFilesByURLs(r.files, urls), nil
+}
+
 // UpdateTags adds or removes tags for media files matching the supplied URLs.
 func (r *MemoryRepository) UpdateTags(
 	_ context.Context,
