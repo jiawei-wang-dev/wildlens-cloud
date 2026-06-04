@@ -54,32 +54,54 @@ def write_to_dynamodb(file_id, bucket, key, file_type, tags, tag_counts, primary
     print(f"Written to DynamoDB: {file_id}")
     return file_url
 
-def call_gcp_infer(presigned_url, file_type):
+def call_gcp_infer(bucket, key, file_id, file_type, presigned_url=None):
     """Call GCP Cloud Run ML inference service"""
     if GCP_INFER_URL == "PLACEHOLDER_REPLACE_WITH_GCP_URL":
         print("WARNING: GCP inference URL not configured yet")
         return None
     
+    filename = key.split('/')[-1]
+    
+    # Determine mime type
+    if file_type == 'video':
+        mime_type = 'video/mp4'
+    else:
+        mime_type = 'image/jpeg'
+    
     payload = {
-        "file_url": presigned_url,
-        "file_type": file_type
+        "file_id": file_id,
+        "bucket": bucket,
+        "object_path": key,
+        "filename": filename,
+        "file_type": file_type,
+        "mime_type": mime_type,
+        "checksum_sha256": file_id,
+        "download_url": presigned_url
     }
+    
+    headers = {
+        "Content-Type": "application/json"
+    }
+    
+    print(f"Sending to GCP: {payload}")
     
     response = requests.post(
         GCP_INFER_URL,
         json=payload,
+        headers=headers,
         timeout=60
     )
     
+    print(f"GCP response status: {response.status_code}")
+    print(f"GCP response body: {response.text}")
+    
     if response.status_code == 200:
         result = response.json()
-        print(f"GCP inference result: {result}")
         return result
     else:
         print(f"GCP inference failed: {response.status_code}")
         return None
-
-
+    
 def trigger_sns_notification(tag_name, file_url, file_type):
     """Trigger SNS notification Lambda for each detected tag"""
     for tag in tag_name:
@@ -122,7 +144,13 @@ def lambda_handler(event, context):
         presigned_url = get_s3_presigned_url(bucket, key)
         
         # Call GCP Cloud Run for ML inference
-        infer_result = call_gcp_infer(presigned_url, file_type)
+        infer_result = call_gcp_infer(
+            bucket=bucket,
+            key=key,
+            file_id=file_id,
+            file_type=file_type,
+            presigned_url=presigned_url
+        )
         
         if infer_result:
             # Write results to DynamoDB
