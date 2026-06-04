@@ -3,7 +3,10 @@ package service
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
+
+	"github.com/jiawei-wang-dev/wildlens-cloud/backend/query-api/internal/storage"
 
 	"github.com/jiawei-wang-dev/wildlens-cloud/backend/query-api/internal/model"
 	"github.com/jiawei-wang-dev/wildlens-cloud/backend/query-api/internal/repository"
@@ -24,11 +27,33 @@ var (
 
 // QueryService contains media query business logic.
 type QueryService struct {
-	repo repository.MediaRepository
+	repo      repository.MediaRepository
+	urlSigner storage.MediaURLSigner
 }
 
-func NewQueryService(repo repository.MediaRepository) *QueryService {
-	return &QueryService{repo: repo}
+// NewQueryService creates a query service with a local URL signer.
+func NewQueryService(
+	repo repository.MediaRepository,
+) *QueryService {
+	return NewQueryServiceWithURLSigner(
+		repo,
+		storage.NewStaticURLSigner(""),
+	)
+}
+
+// NewQueryServiceWithURLSigner creates a query service with a custom signer.
+func NewQueryServiceWithURLSigner(
+	repo repository.MediaRepository,
+	urlSigner storage.MediaURLSigner,
+) *QueryService {
+	if urlSigner == nil {
+		urlSigner = storage.NewStaticURLSigner("")
+	}
+
+	return &QueryService{
+		repo:      repo,
+		urlSigner: urlSigner,
+	}
 }
 
 func (s *QueryService) FindBySpecies(
@@ -159,7 +184,7 @@ func (s *QueryService) DeleteFiles(
 	return deletedFileIDs, nil
 }
 
-// ListObservations validates list filters and returns one page.
+// ListObservations validates filters and adds temporary display URLs.
 func (s *QueryService) ListObservations(
 	ctx context.Context,
 	limit int,
@@ -173,7 +198,7 @@ func (s *QueryService) ListObservations(
 			ErrInvalidObservationLimit
 	}
 
-	return s.repo.ListObservations(
+	page, err := s.repo.ListObservations(
 		ctx,
 		repository.ObservationListOptions{
 			Limit:     limit,
@@ -183,4 +208,45 @@ func (s *QueryService) ListObservations(
 			Status:    strings.TrimSpace(status),
 		},
 	)
+	if err != nil {
+		return repository.ObservationPage{}, err
+	}
+
+	for index := range page.Items {
+		file := &page.Items[index]
+
+		if strings.TrimSpace(file.ObjectPath) != "" {
+			file.FileDownloadURL, err =
+				s.urlSigner.SignGetObjectURL(
+					ctx,
+					file.Bucket,
+					file.ObjectPath,
+				)
+			if err != nil {
+				return repository.ObservationPage{},
+					fmt.Errorf(
+						"sign file download URL: %w",
+						err,
+					)
+			}
+		}
+
+		if strings.TrimSpace(file.ThumbnailObjectPath) != "" {
+			file.ThumbnailDisplayURL, err =
+				s.urlSigner.SignGetObjectURL(
+					ctx,
+					file.Bucket,
+					file.ThumbnailObjectPath,
+				)
+			if err != nil {
+				return repository.ObservationPage{},
+					fmt.Errorf(
+						"sign thumbnail display URL: %w",
+						err,
+					)
+			}
+		}
+	}
+
+	return page, nil
 }

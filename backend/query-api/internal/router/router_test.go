@@ -822,3 +822,54 @@ func TestListObservationsRejectsInvalidToken(t *testing.T) {
 		t.Fatalf("expected status 400, got %d", response.Code)
 	}
 }
+
+func TestListObservationsReturnsDisplayURLs(t *testing.T) {
+	engine := newTestEngine()
+
+	request := httptest.NewRequest(
+		http.MethodGet,
+		"/api/v1/observations?species=koala",
+		nil,
+	)
+	response := httptest.NewRecorder()
+
+	engine.ServeHTTP(response, request)
+
+	if response.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", response.Code)
+	}
+
+	var payload model.ObservationListResponse
+
+	if err := json.Unmarshal(response.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+
+	if len(payload.Items) != 1 {
+		t.Fatalf("expected 1 item, got %d", len(payload.Items))
+	}
+
+	file := payload.Items[0]
+
+	expectedThumbnailURL := "https://local.wildlens.test/" +
+		"wildlens-media/media/thumbnails/koala.jpg"
+
+	if file.ThumbnailDisplayURL != expectedThumbnailURL {
+		t.Fatalf(
+			"expected thumbnail URL %q, got %q",
+			expectedThumbnailURL,
+			file.ThumbnailDisplayURL,
+		)
+	}
+
+	expectedDownloadURL := "https://local.wildlens.test/" +
+		"wildlens-media/media/originals/koala.jpg"
+
+	if file.FileDownloadURL != expectedDownloadURL {
+		t.Fatalf(
+			"expected download URL %q, got %q",
+			expectedDownloadURL,
+			file.FileDownloadURL,
+		)
+	}
+}

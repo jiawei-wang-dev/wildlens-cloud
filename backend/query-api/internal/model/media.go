@@ -14,6 +14,8 @@ type MediaFile struct {
 	ThumbnailObjectPath string         `json:"thumbnail_object_path,omitempty" dynamodbav:"thumbnail_object_path,omitempty"`
 	FileURL             string         `json:"file_url" dynamodbav:"file_url"`
 	ThumbnailURL        string         `json:"thumbnail_url,omitempty" dynamodbav:"thumbnail_url,omitempty"`
+	ThumbnailDisplayURL string         `json:"thumbnail_display_url,omitempty" dynamodbav:"-"`
+	FileDownloadURL     string         `json:"file_download_url,omitempty" dynamodbav:"-"`
 	Tags                []string       `json:"tags" dynamodbav:"tags"`
 	TagCounts           map[string]int `json:"tag_counts" dynamodbav:"tag_counts"`
 	PrimarySpecies      string         `json:"primary_species,omitempty" dynamodbav:"primary_species,omitempty"`
