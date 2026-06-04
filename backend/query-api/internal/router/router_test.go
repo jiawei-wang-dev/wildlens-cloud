@@ -603,3 +603,222 @@ func TestDeleteFilesRejectsInvalidJSON(t *testing.T) {
 		t.Fatalf("expected status 400, got %d", response.Code)
 	}
 }
+
+func TestListObservationsReturnsFirstPage(t *testing.T) {
+	engine := newTestEngine()
+
+	request := httptest.NewRequest(
+		http.MethodGet,
+		"/api/v1/observations?limit=1",
+		nil,
+	)
+	response := httptest.NewRecorder()
+
+	engine.ServeHTTP(response, request)
+
+	if response.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", response.Code)
+	}
+
+	var payload model.ObservationListResponse
+
+	if err := json.Unmarshal(response.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+
+	if len(payload.Items) != 1 {
+		t.Fatalf("expected 1 item, got %d", len(payload.Items))
+	}
+
+	if !payload.HasMore {
+		t.Fatal("expected has_more true")
+	}
+
+	if payload.NextToken == "" {
+		t.Fatal("expected non-empty next_token")
+	}
+}
+
+func TestListObservationsReturnsNextPage(t *testing.T) {
+	engine := newTestEngine()
+
+	firstRequest := httptest.NewRequest(
+		http.MethodGet,
+		"/api/v1/observations?limit=1",
+		nil,
+	)
+	firstResponse := httptest.NewRecorder()
+
+	engine.ServeHTTP(firstResponse, firstRequest)
+
+	var firstPayload model.ObservationListResponse
+
+	if err := json.Unmarshal(
+		firstResponse.Body.Bytes(),
+		&firstPayload,
+	); err != nil {
+		t.Fatalf("failed to decode first response: %v", err)
+	}
+
+	nextPath := "/api/v1/observations?limit=1&next_token=" +
+		firstPayload.NextToken
+
+	secondRequest := httptest.NewRequest(
+		http.MethodGet,
+		nextPath,
+		nil,
+	)
+	secondResponse := httptest.NewRecorder()
+
+	engine.ServeHTTP(secondResponse, secondRequest)
+
+	if secondResponse.Code != http.StatusOK {
+		t.Fatalf(
+			"expected status 200, got %d",
+			secondResponse.Code,
+		)
+	}
+
+	var secondPayload model.ObservationListResponse
+
+	if err := json.Unmarshal(
+		secondResponse.Body.Bytes(),
+		&secondPayload,
+	); err != nil {
+		t.Fatalf("failed to decode second response: %v", err)
+	}
+
+	if len(secondPayload.Items) != 1 {
+		t.Fatalf(
+			"expected 1 item, got %d",
+			len(secondPayload.Items),
+		)
+	}
+
+	if secondPayload.HasMore {
+		t.Fatal("expected has_more false")
+	}
+
+	if secondPayload.NextToken != "" {
+		t.Fatal("expected empty next_token")
+	}
+}
+
+func TestListObservationsFiltersBySpecies(t *testing.T) {
+	engine := newTestEngine()
+
+	request := httptest.NewRequest(
+		http.MethodGet,
+		"/api/v1/observations?species=koala",
+		nil,
+	)
+	response := httptest.NewRecorder()
+
+	engine.ServeHTTP(response, request)
+
+	if response.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", response.Code)
+	}
+
+	var payload model.ObservationListResponse
+
+	if err := json.Unmarshal(response.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+
+	if len(payload.Items) != 1 {
+		t.Fatalf("expected 1 item, got %d", len(payload.Items))
+	}
+
+	if payload.Items[0].FileID != "checksum-image-001" {
+		t.Fatalf(
+			"unexpected file ID: %s",
+			payload.Items[0].FileID,
+		)
+	}
+}
+
+func TestListObservationsFiltersByFileType(t *testing.T) {
+	engine := newTestEngine()
+
+	request := httptest.NewRequest(
+		http.MethodGet,
+		"/api/v1/observations?file_type=video",
+		nil,
+	)
+	response := httptest.NewRecorder()
+
+	engine.ServeHTTP(response, request)
+
+	if response.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", response.Code)
+	}
+
+	var payload model.ObservationListResponse
+
+	if err := json.Unmarshal(response.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+
+	if len(payload.Items) != 1 {
+		t.Fatalf("expected 1 item, got %d", len(payload.Items))
+	}
+
+	if payload.Items[0].FileID != "checksum-video-001" {
+		t.Fatalf(
+			"unexpected file ID: %s",
+			payload.Items[0].FileID,
+		)
+	}
+}
+
+func TestListObservationsRejectsInvalidLimit(t *testing.T) {
+	engine := newTestEngine()
+
+	request := httptest.NewRequest(
+		http.MethodGet,
+		"/api/v1/observations?limit=0",
+		nil,
+	)
+	response := httptest.NewRecorder()
+
+	engine.ServeHTTP(response, request)
+
+	if response.Code != http.StatusBadRequest {
+		t.Fatalf("expected status 400, got %d", response.Code)
+	}
+}
+
+func TestListObservationsRejectsNonIntegerLimit(t *testing.T) {
+	engine := newTestEngine()
+
+	request := httptest.NewRequest(
+		http.MethodGet,
+		"/api/v1/observations?limit=abc",
+		nil,
+	)
+	response := httptest.NewRecorder()
+
+	engine.ServeHTTP(response, request)
+
+	if response.Code != http.StatusBadRequest {
+		t.Fatalf("expected status 400, got %d", response.Code)
+	}
+}
+
+func TestListObservationsRejectsInvalidToken(t *testing.T) {
+	engine := newTestEngine()
+
+	request := httptest.NewRequest(
+		http.MethodGet,
+		"/api/v1/observations?next_token=invalid-token",
+		nil,
+	)
+	response := httptest.NewRecorder()
+
+	engine.ServeHTTP(response, request)
+
+	if response.Code != http.StatusBadRequest {
+		t.Fatalf("expected status 400, got %d", response.Code)
+	}
+}

@@ -3,6 +3,8 @@ package handler
 import (
 	"errors"
 	"net/http"
+	"strconv"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 
@@ -177,5 +179,51 @@ func (h *QueryHandler) DeleteFiles(c *gin.Context) {
 	c.JSON(http.StatusOK, model.FileDeleteResponse{
 		DeletedCount:   len(deletedFileIDs),
 		DeletedFileIDs: deletedFileIDs,
+	})
+}
+
+// ListObservations returns filtered and paginated media records.
+func (h *QueryHandler) ListObservations(c *gin.Context) {
+	limit := repository.DefaultObservationLimit
+	limitValue := strings.TrimSpace(c.Query("limit"))
+
+	if limitValue != "" {
+		parsedLimit, err := strconv.Atoi(limitValue)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"error": "limit must be an integer",
+			})
+			return
+		}
+
+		limit = parsedLimit
+	}
+
+	page, err := h.service.ListObservations(
+		c.Request.Context(),
+		limit,
+		c.Query("next_token"),
+		c.Query("species"),
+		c.Query("file_type"),
+		c.Query("status"),
+	)
+	if err != nil {
+		status := http.StatusInternalServerError
+
+		if errors.Is(err, service.ErrInvalidObservationLimit) ||
+			errors.Is(err, repository.ErrInvalidNextToken) {
+			status = http.StatusBadRequest
+		}
+
+		c.JSON(status, gin.H{
+			"error": err.Error(),
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, model.ObservationListResponse{
+		Items:     page.Items,
+		NextToken: page.NextToken,
+		HasMore:   page.HasMore,
 	})
 }

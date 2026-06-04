@@ -292,3 +292,84 @@ Invalid cases include:
 The first local implementation uses `MemoryRepository`.
 
 DynamoDB `DeleteItem` and S3 object deletion are added separately.
+
+## Observation List
+
+Returns a paginated list of uploaded wildlife media records.
+
+### Endpoint
+
+```text
+GET /api/v1/observations
+```
+
+### Query Parameters
+
+| Parameter    | Type    | Required | Description                                                           |
+| ------------ | ------- | -------- | --------------------------------------------------------------------- |
+| `limit`      | Integer | No       | Number of records returned per request. Default: `10`. Maximum: `50`. |
+| `next_token` | String  | No       | Opaque token returned by the previous request.                        |
+| `species`    | String  | No       | Filters files containing the species tag.                             |
+| `file_type`  | String  | No       | Filters records by `image` or `video`.                                |
+| `status`     | String  | No       | Filters records by processing status, such as `ready`.                |
+
+### Example Request
+
+```text
+GET /api/v1/observations?limit=10&species=koala&status=ready
+```
+
+### Successful Response
+
+```json
+{
+  "items": [
+    {
+      "file_id": "checksum-image-001",
+      "original_filename": "koala.jpg",
+      "file_type": "image",
+      "primary_species": "koala",
+      "tags": [
+        "koala",
+        "magpie"
+      ],
+      "tag_counts": {
+        "koala": 3,
+        "magpie": 1
+      },
+      "status": "ready"
+    }
+  ],
+  "next_token": "",
+  "has_more": false
+}
+```
+
+### Pagination Rules
+
+* The first request does not include `next_token`.
+* When another page exists, the backend returns a non-empty `next_token`.
+* The frontend must pass the returned token back unchanged.
+* When there is no next page, `next_token` is an empty string and `has_more` is `false`.
+* The token is opaque. The frontend must not decode or modify it.
+
+### Invalid Request
+
+HTTP status:
+
+```text
+400 Bad Request
+```
+
+Invalid cases include:
+
+* `limit` is not an integer;
+* `limit` is less than `1`;
+* `limit` is greater than `50`;
+* `next_token` is invalid.
+
+### Notes
+
+The first implementation may use DynamoDB `Scan` followed by filtering and pagination in the Go service.
+
+The frontend contract remains unchanged if the backend later adds a DynamoDB Global Secondary Index or native DynamoDB cursor pagination.

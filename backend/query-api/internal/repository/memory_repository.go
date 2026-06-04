@@ -137,3 +137,11 @@ func (r *MemoryRepository) DeleteFiles(
 
 	return deletedFiles, nil
 }
+
+// ListObservations returns filtered and paginated media records.
+func (r *MemoryRepository) ListObservations(
+	_ context.Context,
+	options ObservationListOptions,
+) (ObservationPage, error) {
+	return paginateObservations(r.files, options)
+}

@@ -317,3 +317,16 @@ func (r *DynamoDBRepository) scanAll(
 
 	return files, nil
 }
+
+// ListObservations returns filtered and paginated DynamoDB records.
+func (r *DynamoDBRepository) ListObservations(
+	ctx context.Context,
+	options ObservationListOptions,
+) (ObservationPage, error) {
+	files, err := r.scanAll(ctx)
+	if err != nil {
+		return ObservationPage{}, err
+	}
+
+	return paginateObservations(files, options)
+}

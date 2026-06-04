@@ -60,3 +60,10 @@ type FileDeleteResponse struct {
 	DeletedCount   int      `json:"deleted_count"`
 	DeletedFileIDs []string `json:"deleted_file_ids"`
 }
+
+// ObservationListResponse contains one paginated media list response.
+type ObservationListResponse struct {
+	Items     []MediaFile `json:"items"`
+	NextToken string      `json:"next_token"`
+	HasMore   bool        `json:"has_more"`
+}
