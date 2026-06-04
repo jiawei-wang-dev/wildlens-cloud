@@ -12,3 +12,5 @@ venv/
 *.zip
 models/
 model/
+.DS_Store
+model_artifacts/
