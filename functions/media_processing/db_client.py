@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Dict
 
-from models import MediaMetadata
+from schemas import MediaMetadata
 
 
 class FakeDbClient:

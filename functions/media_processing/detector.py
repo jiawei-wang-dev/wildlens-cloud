@@ -8,11 +8,11 @@ from typing import List
 try:
     from . import model_artifact_loader
     from . import provided_model_detector
-    from .models import Detection
+    from schemas import Detection
 except ImportError:
     import model_artifact_loader
     import provided_model_detector
-    from models import Detection
+    from schemas import Detection
 
 
 FAKE_MODEL_VERSION = "fake-detector-v0"

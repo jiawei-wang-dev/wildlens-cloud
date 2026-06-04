@@ -7,7 +7,7 @@ from typing import Dict, Iterable, List, Optional, Sequence, Union
 
 from db_client import FakeDbClient
 from detector import detect_image, get_model_version
-from models import Detection, MediaMetadata, ProcessingResult
+from schemas import Detection, MediaMetadata, ProcessingResult
 from storage_client import FakeStorageClient
 
 

@@ -7,9 +7,9 @@ import tempfile
 from typing import Any, List
 
 try:
-    from .models import Detection
+    from .schemas import Detection
 except ImportError:
-    from models import Detection
+    from schemas import Detection
 
 
 DEFAULT_MODEL_DIR = Path(__file__).resolve().parent / "model_artifacts" / "AussieEcoLense"
