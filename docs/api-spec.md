@@ -184,3 +184,111 @@ Invalid cases include:
 Adding tags may trigger SNS notifications in a later integration step.
 
 The first local implementation uses `MemoryRepository`. DynamoDB persistence is added separately.
+
+## Bulk Media Deletion
+
+Deletes multiple media files by their stable file IDs.
+
+### Endpoint
+
+```text
+DELETE /api/v1/files
+```
+
+### Authentication
+
+The production API requires a valid Cognito token:
+
+```text
+Authorization: Bearer <token>
+```
+
+Authentication middleware may be bypassed during local development.
+
+### Request Body
+
+```json
+{
+  "file_ids": [
+    "checksum-image-001",
+    "checksum-video-001"
+  ]
+}
+```
+
+### Request Fields
+
+| Field      | Type           | Required | Description                                                               |
+| ---------- | -------------- | -------- | ------------------------------------------------------------------------- |
+| `file_ids` | `List<String>` | Yes      | Stable media record IDs. Each `file_id` is based on the SHA-256 checksum. |
+
+### Business Rules
+
+* Duplicate file IDs are ignored.
+* Leading and trailing spaces are removed.
+* Unknown file IDs are ignored.
+* Empty file IDs are ignored.
+* The backend uses `file_id` rather than URLs because URLs may change or expire.
+* The production implementation removes the original S3 object, the thumbnail object when present, and the DynamoDB metadata record.
+* The local memory implementation removes only the in-memory metadata record.
+
+### Successful Response
+
+HTTP status:
+
+```text
+200 OK
+```
+
+Response body:
+
+```json
+{
+  "deleted_count": 2,
+  "deleted_file_ids": [
+    "checksum-image-001",
+    "checksum-video-001"
+  ]
+}
+```
+
+### No Matching Records
+
+Unknown file IDs do not cause an error.
+
+Example response:
+
+```json
+{
+  "deleted_count": 0,
+  "deleted_file_ids": []
+}
+```
+
+### Invalid Request
+
+HTTP status:
+
+```text
+400 Bad Request
+```
+
+Example response:
+
+```json
+{
+  "error": "at least one file_id is required"
+}
+```
+
+Invalid cases include:
+
+* `file_ids` is empty;
+* `file_ids` contains only whitespace;
+* JSON body is invalid.
+
+### Notes
+
+The first local implementation uses `MemoryRepository`.
+
+DynamoDB `DeleteItem` and S3 object deletion are added separately.
