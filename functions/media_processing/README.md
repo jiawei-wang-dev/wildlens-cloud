@@ -4,7 +4,7 @@ This module is the local skeleton for Member B's GCP Cloud Run media inference s
 
 The final team architecture uses AWS S3 as the formal media bucket. Frontend upload goes to S3, an S3 object-created event triggers the AWS Lambda coordinator, and the Lambda coordinator calls this Cloud Run service over HTTP at `POST /infer`.
 
-This module remains local and testable. It does not store AWS credentials, download real S3 objects, upload real thumbnails, write DynamoDB, call SNS, or run a real ML model.
+This module remains local and testable. It does not store AWS credentials, upload real thumbnails, write DynamoDB, call SNS, or run a real ML model.
 
 ## Current Scope
 
@@ -15,6 +15,7 @@ Implemented in this skeleton:
 - fake detector and model version placeholder
 - image tag count aggregation and primary species selection
 - video per-frame tag aggregation using the maximum species count across sampled frames
+- Stage 6A `download_url` helper for downloading coordinator-provided media URLs into a temporary directory
 - image thumbnail helper
 - video frame extraction helper at 1 frame per second
 - metadata/result models used by local tests and coordinator contract discussion
@@ -48,6 +49,10 @@ Response fields:
 - `error` optional
 
 Current placeholder behavior returns `status="ready"` for supported image/video requests and uses the fake detector. Unsupported `file_type` values fail request validation.
+
+Stage 6A adds `download_media(download_url, target_dir, filename)` in `media_downloader.py` for future `download_url` integration. The helper validates that `filename` is a plain file name, writes to `/tmp` or another caller-provided temporary directory, uses a request timeout, and raises clear errors for HTTP, network, timeout, and file-write failures.
+
+The production Cloud Run path remains `POST /infer`. This stage does not require `/infer` to successfully download real media yet, so existing placeholder Cloud Run integration can continue to work with fake URLs.
 
 ## Cloud Run Deployment Preparation
 
@@ -101,6 +106,12 @@ The final production entrypoint is Cloud Run HTTP `POST /infer`.
 - Replace the fake detector with the selected wildlife ML model.
 - Return production-ready error details for failed inference.
 - Keep DynamoDB writes to `fit5225-wildlife-media-metadata` and SNS notifications in the AWS Lambda coordinator, not in this service.
+
+Planned next stages:
+
+- Stage 6B: real thumbnail generation/upload integration.
+- Stage 6C: real video frame extraction integration.
+- Stage 6D: real ML inference integration.
 
 ## Running Tests
 
