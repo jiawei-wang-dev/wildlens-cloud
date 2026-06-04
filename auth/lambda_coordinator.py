@@ -129,9 +129,11 @@ def lambda_handler(event, context):
         
         print(f"Processing file: s3://{bucket}/{key}")
         
-        # Generate file_id from checksum
-        file_id = key.split('/')[-1].split('.')[0]
-        
+        # Generate file_id from actual file checksum
+        response = s3_client.get_object(Bucket=bucket, Key=key)
+        file_content = response['Body'].read()
+        file_id = hashlib.sha256(file_content).hexdigest()
+                
         # Check for duplicate
         if check_duplicate(file_id):
             print(f"Duplicate file detected: {file_id}, skipping...")
