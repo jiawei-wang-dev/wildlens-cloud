@@ -373,3 +373,61 @@ Invalid cases include:
 The first implementation may use DynamoDB `Scan` followed by filtering and pagination in the Go service.
 
 The frontend contract remains unchanged if the backend later adds a DynamoDB Global Secondary Index or native DynamoDB cursor pagination.
+
+## Temporary Media Display URLs
+
+Private S3 object paths cannot be rendered directly by a browser.
+
+The observation list endpoint returns temporary HTTPS URLs for frontend display and download.
+
+### Response Fields
+
+| Field                   | Type   | Description                                                     |
+| ----------------------- | ------ | --------------------------------------------------------------- |
+| `thumbnail_display_url` | String | Temporary HTTPS URL used by the frontend to render a thumbnail. |
+| `file_download_url`     | String | Temporary HTTPS URL used to download the original media file.   |
+
+Example response item:
+
+```json
+{
+  "file_id": "checksum-image-001",
+  "bucket": "wildlens-media",
+  "object_path": "media/originals/koala.jpg",
+  "thumbnail_object_path": "media/thumbnails/koala.jpg",
+  "thumbnail_display_url": "https://temporary-signed-url",
+  "file_download_url": "https://temporary-signed-url"
+}
+```
+
+### Frontend Usage
+
+The frontend thumbnail component should use:
+
+```html
+<img :src="item.thumbnail_display_url" />
+```
+
+The frontend should not attempt to render:
+
+* `thumbnail_object_path`;
+* `object_path`;
+* `s3://...` URLs.
+
+### Storage Rules
+
+The database stores stable S3 fields:
+
+* `bucket`;
+* `object_path`;
+* `thumbnail_object_path`.
+
+Temporary display URLs are generated when the API returns data.
+
+Temporary URLs are not stored permanently in DynamoDB because they expire.
+
+### Local Development
+
+Local memory mode returns predictable placeholder HTTPS URLs.
+
+AWS deployment mode returns real S3 Presigned GET URLs.
