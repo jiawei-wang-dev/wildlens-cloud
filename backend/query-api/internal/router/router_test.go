@@ -472,3 +472,134 @@ func TestUpdateTagsRejectsWhitespaceOnlyTags(t *testing.T) {
 		t.Fatalf("expected status 400, got %d", response.Code)
 	}
 }
+
+func TestDeleteFilesRemovesMatchedFile(t *testing.T) {
+	engine := newTestEngine()
+
+	response := performJSONRequest(
+		engine,
+		http.MethodDelete,
+		"/api/v1/files",
+		`{
+			"file_ids": [
+				"checksum-image-001"
+			]
+		}`,
+	)
+
+	if response.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", response.Code)
+	}
+
+	var payload model.FileDeleteResponse
+
+	if err := json.Unmarshal(response.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+
+	if payload.DeletedCount != 1 {
+		t.Fatalf(
+			"expected deleted_count 1, got %d",
+			payload.DeletedCount,
+		)
+	}
+
+	if len(payload.DeletedFileIDs) != 1 {
+		t.Fatalf(
+			"expected 1 deleted file ID, got %d",
+			len(payload.DeletedFileIDs),
+		)
+	}
+
+	if payload.DeletedFileIDs[0] != "checksum-image-001" {
+		t.Fatalf(
+			"unexpected deleted file ID: %s",
+			payload.DeletedFileIDs[0],
+		)
+	}
+}
+
+func TestDeleteFilesIgnoresUnknownID(t *testing.T) {
+	engine := newTestEngine()
+
+	response := performJSONRequest(
+		engine,
+		http.MethodDelete,
+		"/api/v1/files",
+		`{
+			"file_ids": [
+				"missing-file-id"
+			]
+		}`,
+	)
+
+	if response.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", response.Code)
+	}
+
+	var payload model.FileDeleteResponse
+
+	if err := json.Unmarshal(response.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+
+	if payload.DeletedCount != 0 {
+		t.Fatalf(
+			"expected deleted_count 0, got %d",
+			payload.DeletedCount,
+		)
+	}
+}
+
+func TestDeleteFilesRejectsEmptyIDs(t *testing.T) {
+	engine := newTestEngine()
+
+	response := performJSONRequest(
+		engine,
+		http.MethodDelete,
+		"/api/v1/files",
+		`{
+			"file_ids": []
+		}`,
+	)
+
+	if response.Code != http.StatusBadRequest {
+		t.Fatalf("expected status 400, got %d", response.Code)
+	}
+}
+
+func TestDeleteFilesRejectsWhitespaceOnlyIDs(t *testing.T) {
+	engine := newTestEngine()
+
+	response := performJSONRequest(
+		engine,
+		http.MethodDelete,
+		"/api/v1/files",
+		`{
+			"file_ids": [
+				"   "
+			]
+		}`,
+	)
+
+	if response.Code != http.StatusBadRequest {
+		t.Fatalf("expected status 400, got %d", response.Code)
+	}
+}
+
+func TestDeleteFilesRejectsInvalidJSON(t *testing.T) {
+	engine := newTestEngine()
+
+	response := performJSONRequest(
+		engine,
+		http.MethodDelete,
+		"/api/v1/files",
+		`{
+			"file_ids":
+		}`,
+	)
+
+	if response.Code != http.StatusBadRequest {
+		t.Fatalf("expected status 400, got %d", response.Code)
+	}
+}

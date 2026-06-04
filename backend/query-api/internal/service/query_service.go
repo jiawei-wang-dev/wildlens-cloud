@@ -16,6 +16,7 @@ var (
 	ErrThumbnailURLRequired = errors.New("thumbnail_url is required")
 	ErrURLsRequired         = errors.New("at least one URL is required")
 	ErrTagOperationRequired = errors.New("operation is required")
+	ErrFileIDsRequired      = errors.New("at least one file_id is required")
 )
 
 // QueryService contains media query business logic.
@@ -120,4 +121,37 @@ func (s *QueryService) UpdateTags(
 		cleanTags,
 		*operation,
 	)
+}
+
+// DeleteFiles validates file IDs and removes matched media records.
+func (s *QueryService) DeleteFiles(
+	ctx context.Context,
+	fileIDs []string,
+) ([]string, error) {
+	cleanFileIDs := make([]string, 0, len(fileIDs))
+
+	for _, fileID := range fileIDs {
+		fileID = strings.TrimSpace(fileID)
+
+		if fileID != "" {
+			cleanFileIDs = append(cleanFileIDs, fileID)
+		}
+	}
+
+	if len(cleanFileIDs) == 0 {
+		return nil, ErrFileIDsRequired
+	}
+
+	deletedFiles, err := s.repo.DeleteFiles(ctx, cleanFileIDs)
+	if err != nil {
+		return nil, err
+	}
+
+	deletedFileIDs := make([]string, 0, len(deletedFiles))
+
+	for _, file := range deletedFiles {
+		deletedFileIDs = append(deletedFileIDs, file.FileID)
+	}
+
+	return deletedFileIDs, nil
 }

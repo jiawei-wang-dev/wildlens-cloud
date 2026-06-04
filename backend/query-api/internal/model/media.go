@@ -49,3 +49,14 @@ type TagUpdateResponse struct {
 	UpdatedCount int         `json:"updated_count"`
 	Files        []MediaFile `json:"files"`
 }
+
+// FileDeleteRequest deletes multiple media files by their stable IDs.
+type FileDeleteRequest struct {
+	FileIDs []string `json:"file_ids" binding:"required"`
+}
+
+// FileDeleteResponse contains the IDs of deleted media files.
+type FileDeleteResponse struct {
+	DeletedCount   int      `json:"deleted_count"`
+	DeletedFileIDs []string `json:"deleted_file_ids"`
+}
