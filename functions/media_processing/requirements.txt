@@ -4,6 +4,5 @@ httpx
 pydantic
 uvicorn[standard]
 pillow
-opencv-python
 requests
 opencv-python-headless
