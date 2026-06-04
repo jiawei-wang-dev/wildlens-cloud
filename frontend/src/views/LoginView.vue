@@ -39,26 +39,31 @@ const router = useRouter()
 const isProcessing = ref(false)
 
 // Integrated with the real AWS Cognito URL parameters provided by your teammate!
-const COGNITO_HOSTED_UI_URL = 'https://us-east-1zhpmn5rx5.auth.us-east-1.amazoncognito.com/login?client_id=4vaujh7rjc3as3q38pqlva6iet&response_type=code&scope=email+openid+phone&redirect_uri=http://localhost:3000/login'
+const COGNITO_HOSTED_UI_URL = 'https://us-east-1zhpmn5rx5.auth.us-east-1.amazoncognito.com/login?client_id=4vaujh7rjc3as3q38pqlva6iet&response_type=token&scope=email+openid+phone&redirect_uri=http://localhost:3000/login'
 
 // Dispatches the browser viewport directly to AWS secure login dashboard
 const redirectToCognito = () => {
   window.location.href = COGNITO_HOSTED_UI_URL
 }
 
-// Lifecycle Hook: Catches response codes from AWS once redirected back to our Vite local server
+// Lifecycle Hook: Intercept and extract the genuine AWS JWT token
 onMounted(() => {
-  const urlParams = new URLSearchParams(window.location.search)
-  const code = urlParams.get('code')
+  // AWS places parameters in the URL hash (#) when using response_type=token
+  const hash = window.location.hash.substring(1)
+  const params = new URLSearchParams(hash)
+  const idToken = params.get('id_token')
   
-  if (code) {
+  if (idToken) {
     isProcessing.value = true
     
-    // Save the authentication receipt locally to grant passage through the Router Guard
-    localStorage.setItem('id_token', 'verified_auth_code_' + code)
+    // Store the verified AWS-signed JWT in local storage
+    localStorage.setItem('id_token', idToken)
     ElMessage.success('Authenticated via AWS Cognito successfully!')
     
-    // Smoothly transition into the protected application dashboard
+    // Clean the address bar by removing the long token string
+    window.history.replaceState({}, document.title, '/login')
+    
+    // Smooth redirect to the main dashboard
     router.push('/dashboard')
   }
 })
