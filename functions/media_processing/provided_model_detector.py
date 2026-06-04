@@ -34,11 +34,28 @@ class _ProvidedModelBundle:
 
 
 _MODEL_CACHE: _ProvidedModelBundle | None = None
+_MODEL_CACHE_DIR: Path | None = None
+_MODEL_DIR_OVERRIDE: Path | None = None
 
 
 def get_provided_model_dir() -> Path:
     """Return the configured local directory for the provided model package."""
+    if _MODEL_DIR_OVERRIDE is not None:
+        return _MODEL_DIR_OVERRIDE
+
     return Path(os.environ.get(MODEL_DIR_ENV, DEFAULT_MODEL_DIR))
+
+
+def configure_model_dir(model_dir: Path) -> None:
+    """Point the provided detector at a resolved model directory."""
+    global _MODEL_CACHE, _MODEL_CACHE_DIR, _MODEL_DIR_OVERRIDE
+
+    resolved_model_dir = Path(model_dir)
+    if _MODEL_CACHE_DIR is not None and _MODEL_CACHE_DIR != resolved_model_dir:
+        _MODEL_CACHE = None
+        _MODEL_CACHE_DIR = None
+
+    _MODEL_DIR_OVERRIDE = resolved_model_dir
 
 
 def provided_model_files_available(model_dir: Path | None = None) -> bool:
@@ -78,7 +95,7 @@ def detect_image_with_provided_model(image_path: Path) -> List[Detection]:
 
 
 def _load_model_bundle() -> _ProvidedModelBundle:
-    global _MODEL_CACHE
+    global _MODEL_CACHE, _MODEL_CACHE_DIR
 
     if _MODEL_CACHE is not None:
         return _MODEL_CACHE
@@ -111,6 +128,7 @@ def _load_model_bundle() -> _ProvidedModelBundle:
         torch=torch,
         load_image=load_image,
     )
+    _MODEL_CACHE_DIR = model_dir
     return _MODEL_CACHE
 
 

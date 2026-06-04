@@ -6,9 +6,11 @@ from pathlib import Path
 from typing import List
 
 try:
+    from . import model_artifact_loader
     from . import provided_model_detector
     from .models import Detection
 except ImportError:
+    import model_artifact_loader
     import provided_model_detector
     from models import Detection
 
@@ -23,8 +25,10 @@ logger = logging.getLogger(__name__)
 
 def detect_image(image_path: str) -> List[Detection]:
     """Run the configured image detector, falling back to deterministic fake output."""
-    if _should_use_provided_model():
+    model_dir = _resolve_provided_model_dir()
+    if model_dir is not None:
         try:
+            provided_model_detector.configure_model_dir(model_dir)
             detections = provided_model_detector.detect_image_with_provided_model(Path(image_path))
             _set_model_version(PROVIDED_MODEL_VERSION)
             return detections
@@ -40,11 +44,11 @@ def get_model_version() -> str:
     return MODEL_VERSION
 
 
-def _should_use_provided_model() -> bool:
+def _resolve_provided_model_dir() -> Path | None:
     if not _environment_flag_enabled(os.environ.get(USE_PROVIDED_MODEL_ENV)):
-        return False
+        return None
 
-    return provided_model_detector.provided_model_files_available()
+    return model_artifact_loader.ensure_model_artifacts_available()
 
 
 def _environment_flag_enabled(value: str | None) -> bool:

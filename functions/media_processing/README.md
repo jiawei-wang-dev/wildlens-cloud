@@ -14,6 +14,7 @@ Implemented in this skeleton:
 - FastAPI `GET /health` readiness endpoint for Cloud Run checks
 - fake detector fallback and model version reporting
 - optional provided AussieEcoLense model detector integration
+- GCS model artifact loading for Cloud Run
 - image tag count aggregation and primary species selection
 - video per-frame tag aggregation using the maximum species count across sampled frames
 - Stage 6A `download_url` helper for downloading coordinator-provided media URLs into a temporary directory
@@ -65,12 +66,17 @@ Stage 8B adds optional provided model detector integration. When `USE_PROVIDED_M
 
 If the provided model is disabled, model files are missing, or model loading/inference fails, the service falls back to `fake-detector-v0` so local development and coordinator contract tests keep working.
 
+Stage 8C adds Cloud Run model artifact loading from GCS. When `USE_PROVIDED_MODEL=true`, `detector.py` first asks `model_artifact_loader.py` for a usable local model directory. The loader uses a complete local `PROVIDED_MODEL_DIR` when available. If the local directory is missing or incomplete and `GCS_MODEL_BUCKET` plus `GCS_MODEL_PREFIX` are configured, it downloads `mdv5a.pt`, `model.pt`, `labels.txt`, and `config.yaml` into `MODEL_ARTIFACT_CACHE_DIR`, then points the provided detector at that cache directory. If GCS setup, download, or model loading fails, the service still falls back to `fake-detector-v0`.
+
 ## Provided Model Artifacts
 
 The provided model artifacts are local ignored files and must not be committed to Git:
 
 - `functions/media_processing/model_artifacts/`
 - `*.pt`
+- `.venv-model`
+- `cropped_images`
+- `mg_detections.json`
 
 Set `PROVIDED_MODEL_DIR` to the directory that contains:
 
@@ -91,9 +97,26 @@ USE_PROVIDED_MODEL=true
 PROVIDED_MODEL_DIR=functions/media_processing/model_artifacts/AussieEcoLense
 ```
 
+For Cloud Run, the model artifacts can be downloaded from GCS instead of being committed or baked into Git:
+
+```bash
+USE_PROVIDED_MODEL=true
+GCS_MODEL_BUCKET=fit5225-wildlens-model-artifacts
+GCS_MODEL_PREFIX=aussie-ecolense/v1
+MODEL_ARTIFACT_CACHE_DIR=/tmp/aussie-ecolense/v1
+```
+
+The current GCS artifact location is:
+
+```bash
+gs://fit5225-wildlens-model-artifacts/aussie-ecolense/v1/
+```
+
+The Cloud Run service account needs read access to those objects, such as `roles/storage.objectViewer`.
+
 The runtime that enables this route must also install the teacher model package dependencies, including MegaDetector, PyTorch, TorchVision, and the package requirements noted in the provided AussieEcoLense README. These imports are lazy, so normal `fake-detector-v0` tests do not load those packages.
 
-For future Cloud Run deployment, the model package should be supplied outside Git, for example through a build-time or runtime artifact process such as GCS/GCP model download or mounted/copied deployment artifacts.
+`google-cloud-storage` is included for artifact loading. The teacher model runtime dependencies are still handled separately from the main service requirements.
 
 ## Cloud Run Deployment
 
@@ -133,7 +156,7 @@ The AWS Lambda coordinator remains responsible for:
 - writing DynamoDB metadata to table `fit5225-wildlife-media-metadata`
 - triggering SNS
 
-Current Cloud Run scope still does not include S3 artifact upload, DynamoDB writes, stored AWS credentials, or SNS notifications. Real ML is optional and local-artifact backed in Stage 8B; production artifact delivery still needs a GCS/GCP deployment plan.
+Current Cloud Run scope still does not include S3 artifact upload, DynamoDB writes, stored AWS credentials, or SNS notifications. Real ML is optional and artifact-backed in Stage 8B/8C; `fake-detector-v0` remains the fallback, not the intended provided-model path.
 
 ## Legacy Helper
 
@@ -143,7 +166,7 @@ The final production entrypoint is Cloud Run HTTP `POST /infer`.
 
 ## TODO For Production Integration
 
-- Provide the model artifacts through a production-safe GCS/GCP deployment flow.
+- Finalize the teacher model runtime dependency installation for Cloud Run.
 - Use coordinator-provided thumbnail upload URLs instead of fake paths.
 - Upload generated thumbnails, frames, or poster images only after the team agrees on artifact paths and upload URL handling.
 - Return production-ready error details for failed inference.
@@ -151,7 +174,7 @@ The final production entrypoint is Cloud Run HTTP `POST /infer`.
 
 Planned next stages:
 
-- Stage 8B: provided model detector integration.
+- Stage 8C: GCS model artifact loading for Cloud Run.
 - Later integration: upload generated thumbnails using coordinator-provided upload URLs.
 
 ## Running Tests
