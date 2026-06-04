@@ -8,6 +8,7 @@ requests
 opencv-python-headless
 google-cloud-storage
 megadetector
+onnx==1.16.2
 onnx2torch
 torch
 torchvision
