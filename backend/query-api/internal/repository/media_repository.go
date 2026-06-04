@@ -29,4 +29,9 @@ type MediaRepository interface {
 		tags []string,
 		operation int,
 	) ([]model.MediaFile, error)
+
+	DeleteFiles(
+		ctx context.Context,
+		fileIDs []string,
+	) ([]model.MediaFile, error)
 }

@@ -27,6 +27,12 @@ type DynamoDBAPI interface {
 		params *dynamodb.UpdateItemInput,
 		optFns ...func(*dynamodb.Options),
 	) (*dynamodb.UpdateItemOutput, error)
+
+	DeleteItem(
+		ctx context.Context,
+		params *dynamodb.DeleteItemInput,
+		optFns ...func(*dynamodb.Options),
+	) (*dynamodb.DeleteItemOutput, error)
 }
 
 // DynamoDBRepository reads and updates media metadata in DynamoDB.
@@ -164,6 +170,64 @@ func (r *DynamoDBRepository) UpdateTags(
 	}
 
 	return updatedFiles, nil
+}
+
+// DeleteFiles removes DynamoDB records matching the supplied file IDs.
+func (r *DynamoDBRepository) DeleteFiles(
+	ctx context.Context,
+	fileIDs []string,
+) ([]model.MediaFile, error) {
+	targetIDs := newFileIDSet(fileIDs)
+
+	files, err := r.scanAll(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	deletedFiles := make([]model.MediaFile, 0)
+
+	for _, file := range files {
+		if _, exists := targetIDs[file.FileID]; !exists {
+			continue
+		}
+
+		if err := r.persistMediaDeletion(ctx, file.FileID); err != nil {
+			return nil, err
+		}
+
+		deletedFiles = append(deletedFiles, file)
+	}
+
+	return deletedFiles, nil
+}
+
+// persistMediaDeletion removes one metadata record from DynamoDB.
+func (r *DynamoDBRepository) persistMediaDeletion(
+	ctx context.Context,
+	fileID string,
+) error {
+	fileID = strings.TrimSpace(fileID)
+
+	if fileID == "" {
+		return fmt.Errorf("delete DynamoDB record: file_id is required")
+	}
+
+	_, err := r.client.DeleteItem(
+		ctx,
+		&dynamodb.DeleteItemInput{
+			TableName: aws.String(r.tableName),
+			Key: map[string]types.AttributeValue{
+				"file_id": &types.AttributeValueMemberS{
+					Value: fileID,
+				},
+			},
+		},
+	)
+	if err != nil {
+		return fmt.Errorf("delete DynamoDB record: %w", err)
+	}
+
+	return nil
 }
 
 // persistTagUpdate updates only tag-related DynamoDB fields.
