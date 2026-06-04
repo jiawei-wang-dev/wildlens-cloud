@@ -239,3 +239,5 @@ node_modules/
 **/node_modules/
 /frontend/dist/
 /frontend/.cache/
+.DS_Store
+functions/media_processing/model_artifacts/
