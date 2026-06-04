@@ -130,6 +130,19 @@ func (r *DynamoDBRepository) FindOriginalByThumbnailURL(
 	return "", ErrMediaNotFound
 }
 
+// FindByURLs returns media metadata matching original or thumbnail URLs.
+func (r *DynamoDBRepository) FindByURLs(
+	ctx context.Context,
+	urls []string,
+) ([]model.MediaFile, error) {
+	files, err := r.scanAll(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	return findMediaFilesByURLs(files, urls), nil
+}
+
 // UpdateTags adds or removes tags for media files matching the supplied URLs.
 func (r *DynamoDBRepository) UpdateTags(
 	ctx context.Context,

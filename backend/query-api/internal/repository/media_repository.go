@@ -23,6 +23,11 @@ type MediaRepository interface {
 		thumbnailURL string,
 	) (string, error)
 
+	FindByURLs(
+		ctx context.Context,
+		urls []string,
+	) ([]model.MediaFile, error)
+
 	UpdateTags(
 		ctx context.Context,
 		urls []string,

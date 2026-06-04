@@ -7,6 +7,109 @@ import (
 	"github.com/jiawei-wang-dev/wildlens-cloud/backend/query-api/internal/model"
 )
 
+func TestMemoryRepositoryFindByURLsMatchesOriginalURL(t *testing.T) {
+	repo := NewMemoryRepository([]model.MediaFile{
+		{
+			FileID:       "checksum-image-001",
+			FileURL:      "s3://bucket/originals/koala.jpg",
+			ThumbnailURL: "s3://bucket/thumbnails/koala.jpg",
+		},
+		{
+			FileID:  "checksum-video-001",
+			FileURL: "s3://bucket/originals/wombat.mp4",
+		},
+	})
+
+	files, err := repo.FindByURLs(
+		context.Background(),
+		[]string{"s3://bucket/originals/koala.jpg"},
+	)
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+
+	if len(files) != 1 {
+		t.Fatalf("expected 1 file, got %d", len(files))
+	}
+
+	if files[0].FileID != "checksum-image-001" {
+		t.Fatalf("unexpected file ID: %s", files[0].FileID)
+	}
+}
+
+func TestMemoryRepositoryFindByURLsMatchesThumbnailURL(t *testing.T) {
+	repo := NewMemoryRepository([]model.MediaFile{
+		{
+			FileID:       "checksum-image-001",
+			FileURL:      "s3://bucket/originals/koala.jpg",
+			ThumbnailURL: "s3://bucket/thumbnails/koala.jpg",
+		},
+	})
+
+	files, err := repo.FindByURLs(
+		context.Background(),
+		[]string{"s3://bucket/thumbnails/koala.jpg"},
+	)
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+
+	if len(files) != 1 {
+		t.Fatalf("expected 1 file, got %d", len(files))
+	}
+
+	if files[0].FileID != "checksum-image-001" {
+		t.Fatalf("unexpected file ID: %s", files[0].FileID)
+	}
+}
+
+func TestMemoryRepositoryFindByURLsIgnoresUnknownURL(t *testing.T) {
+	repo := NewMemoryRepository([]model.MediaFile{
+		{
+			FileID:  "checksum-image-001",
+			FileURL: "s3://bucket/originals/koala.jpg",
+		},
+	})
+
+	files, err := repo.FindByURLs(
+		context.Background(),
+		[]string{"s3://bucket/originals/missing.jpg"},
+	)
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+
+	if len(files) != 0 {
+		t.Fatalf("expected 0 files, got %d", len(files))
+	}
+}
+
+func TestMemoryRepositoryFindByURLsDeduplicatesURLs(t *testing.T) {
+	repo := NewMemoryRepository([]model.MediaFile{
+		{
+			FileID:       "checksum-image-001",
+			FileURL:      "s3://bucket/originals/koala.jpg",
+			ThumbnailURL: "s3://bucket/thumbnails/koala.jpg",
+		},
+	})
+
+	files, err := repo.FindByURLs(
+		context.Background(),
+		[]string{
+			" s3://bucket/originals/koala.jpg ",
+			"s3://bucket/originals/koala.jpg",
+			"",
+		},
+	)
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+
+	if len(files) != 1 {
+		t.Fatalf("expected 1 file, got %d", len(files))
+	}
+}
+
 func TestMemoryRepositoryDeleteFilesRemovesMatchedFile(t *testing.T) {
 	repo := NewMemoryRepository([]model.MediaFile{
 		{

@@ -19,7 +19,6 @@ var (
 	ErrThumbnailURLRequired    = errors.New("thumbnail_url is required")
 	ErrURLsRequired            = errors.New("at least one URL is required")
 	ErrTagOperationRequired    = errors.New("operation is required")
-	ErrFileIDsRequired         = errors.New("at least one file_id is required")
 	ErrInvalidObservationLimit = errors.New(
 		"limit must be between 1 and 50",
 	)
@@ -151,26 +150,49 @@ func (s *QueryService) UpdateTags(
 	)
 }
 
-// DeleteFiles validates file IDs and removes matched media records.
+// DeleteFiles validates URLs and removes matched media records.
 func (s *QueryService) DeleteFiles(
 	ctx context.Context,
-	fileIDs []string,
+	urls []string,
 ) ([]string, error) {
-	cleanFileIDs := make([]string, 0, len(fileIDs))
+	cleanURLs := make([]string, 0, len(urls))
+	seenURLs := make(map[string]struct{})
 
-	for _, fileID := range fileIDs {
-		fileID = strings.TrimSpace(fileID)
+	for _, url := range urls {
+		url = strings.TrimSpace(url)
+
+		if url == "" {
+			continue
+		}
+
+		if _, exists := seenURLs[url]; exists {
+			continue
+		}
+
+		seenURLs[url] = struct{}{}
+		cleanURLs = append(cleanURLs, url)
+	}
+
+	if len(cleanURLs) == 0 {
+		return nil, ErrURLsRequired
+	}
+
+	files, err := s.repo.FindByURLs(ctx, cleanURLs)
+	if err != nil {
+		return nil, err
+	}
+
+	fileIDs := make([]string, 0, len(files))
+
+	for _, file := range files {
+		fileID := strings.TrimSpace(file.FileID)
 
 		if fileID != "" {
-			cleanFileIDs = append(cleanFileIDs, fileID)
+			fileIDs = append(fileIDs, fileID)
 		}
 	}
 
-	if len(cleanFileIDs) == 0 {
-		return nil, ErrFileIDsRequired
-	}
-
-	deletedFiles, err := s.repo.DeleteFiles(ctx, cleanFileIDs)
+	deletedFiles, err := s.repo.DeleteFiles(ctx, fileIDs)
 	if err != nil {
 		return nil, err
 	}

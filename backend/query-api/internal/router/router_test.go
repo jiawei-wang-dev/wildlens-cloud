@@ -473,7 +473,7 @@ func TestUpdateTagsRejectsWhitespaceOnlyTags(t *testing.T) {
 	}
 }
 
-func TestDeleteFilesRemovesMatchedFile(t *testing.T) {
+func TestDeleteFilesRemovesMatchedFileByOriginalURL(t *testing.T) {
 	engine := newTestEngine()
 
 	response := performJSONRequest(
@@ -481,8 +481,8 @@ func TestDeleteFilesRemovesMatchedFile(t *testing.T) {
 		http.MethodDelete,
 		"/api/v1/files",
 		`{
-			"file_ids": [
-				"checksum-image-001"
+			"urls": [
+				"s3://wildlens-media/media/originals/koala.jpg"
 			]
 		}`,
 	)
@@ -519,7 +519,7 @@ func TestDeleteFilesRemovesMatchedFile(t *testing.T) {
 	}
 }
 
-func TestDeleteFilesIgnoresUnknownID(t *testing.T) {
+func TestDeleteFilesRemovesMatchedFileByThumbnailURL(t *testing.T) {
 	engine := newTestEngine()
 
 	response := performJSONRequest(
@@ -527,8 +527,54 @@ func TestDeleteFilesIgnoresUnknownID(t *testing.T) {
 		http.MethodDelete,
 		"/api/v1/files",
 		`{
-			"file_ids": [
-				"missing-file-id"
+			"urls": [
+				"s3://wildlens-media/media/thumbnails/koala.jpg"
+			]
+		}`,
+	)
+
+	if response.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", response.Code)
+	}
+
+	var payload model.FileDeleteResponse
+
+	if err := json.Unmarshal(response.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+
+	if payload.DeletedCount != 1 {
+		t.Fatalf(
+			"expected deleted_count 1, got %d",
+			payload.DeletedCount,
+		)
+	}
+
+	if len(payload.DeletedFileIDs) != 1 {
+		t.Fatalf(
+			"expected 1 deleted file ID, got %d",
+			len(payload.DeletedFileIDs),
+		)
+	}
+
+	if payload.DeletedFileIDs[0] != "checksum-image-001" {
+		t.Fatalf(
+			"unexpected deleted file ID: %s",
+			payload.DeletedFileIDs[0],
+		)
+	}
+}
+
+func TestDeleteFilesIgnoresUnknownURL(t *testing.T) {
+	engine := newTestEngine()
+
+	response := performJSONRequest(
+		engine,
+		http.MethodDelete,
+		"/api/v1/files",
+		`{
+			"urls": [
+				"s3://wildlens-media/media/originals/missing.jpg"
 			]
 		}`,
 	)
@@ -551,7 +597,7 @@ func TestDeleteFilesIgnoresUnknownID(t *testing.T) {
 	}
 }
 
-func TestDeleteFilesRejectsEmptyIDs(t *testing.T) {
+func TestDeleteFilesRejectsEmptyURLs(t *testing.T) {
 	engine := newTestEngine()
 
 	response := performJSONRequest(
@@ -559,7 +605,7 @@ func TestDeleteFilesRejectsEmptyIDs(t *testing.T) {
 		http.MethodDelete,
 		"/api/v1/files",
 		`{
-			"file_ids": []
+			"urls": []
 		}`,
 	)
 
@@ -568,7 +614,7 @@ func TestDeleteFilesRejectsEmptyIDs(t *testing.T) {
 	}
 }
 
-func TestDeleteFilesRejectsWhitespaceOnlyIDs(t *testing.T) {
+func TestDeleteFilesRejectsWhitespaceOnlyURLs(t *testing.T) {
 	engine := newTestEngine()
 
 	response := performJSONRequest(
@@ -576,7 +622,7 @@ func TestDeleteFilesRejectsWhitespaceOnlyIDs(t *testing.T) {
 		http.MethodDelete,
 		"/api/v1/files",
 		`{
-			"file_ids": [
+			"urls": [
 				"   "
 			]
 		}`,
@@ -595,8 +641,23 @@ func TestDeleteFilesRejectsInvalidJSON(t *testing.T) {
 		http.MethodDelete,
 		"/api/v1/files",
 		`{
-			"file_ids":
+			"urls":
 		}`,
+	)
+
+	if response.Code != http.StatusBadRequest {
+		t.Fatalf("expected status 400, got %d", response.Code)
+	}
+}
+
+func TestDeleteFilesRejectsMissingURLs(t *testing.T) {
+	engine := newTestEngine()
+
+	response := performJSONRequest(
+		engine,
+		http.MethodDelete,
+		"/api/v1/files",
+		`{}`,
 	)
 
 	if response.Code != http.StatusBadRequest {
