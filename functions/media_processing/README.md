@@ -4,7 +4,7 @@ This module is Member B's GCP Cloud Run media inference service.
 
 The final team architecture uses AWS S3 as the formal media bucket. Frontend upload goes to S3, an S3 object-created event triggers the AWS Lambda coordinator, and the Lambda coordinator calls this Cloud Run service over HTTP at `POST /infer`.
 
-This module remains simple and testable. It does not store AWS credentials, upload artifacts to S3, write DynamoDB, call SNS, or run a real ML model.
+This module remains simple and testable. It does not store AWS credentials, upload artifacts to S3, write DynamoDB, or call SNS. By default it uses `fake-detector-v0`; the provided AussieEcoLense model can be enabled through local model artifacts and environment variables.
 
 ## Current Scope
 
@@ -12,7 +12,8 @@ Implemented in this skeleton:
 
 - FastAPI `POST /infer` HTTP interface for the Cloud Run service
 - FastAPI `GET /health` readiness endpoint for Cloud Run checks
-- fake detector and model version placeholder
+- fake detector fallback and model version reporting
+- optional provided AussieEcoLense model detector integration
 - image tag count aggregation and primary species selection
 - video per-frame tag aggregation using the maximum species count across sampled frames
 - Stage 6A `download_url` helper for downloading coordinator-provided media URLs into a temporary directory
@@ -50,7 +51,7 @@ Response fields:
 - `thumbnail_object_path`
 - `error` optional
 
-When `download_url` is not provided, `/infer` keeps the placeholder behavior: it returns `status="ready"` for supported image/video requests and uses the fake detector. Unsupported `file_type` values fail request validation.
+When `download_url` is not provided, `/infer` keeps the placeholder behavior: it returns `status="ready"` for supported image/video requests and uses the configured detector. Unsupported `file_type` values fail request validation.
 
 Stage 6A adds `download_media(download_url, target_dir, filename)` in `media_downloader.py`. The helper validates that `filename` is a plain file name, writes to `/tmp` or another caller-provided temporary directory, uses a request timeout, and raises clear errors for HTTP, network, timeout, and file-write failures.
 
@@ -58,7 +59,41 @@ The production Cloud Run path is `POST /infer`. When `download_url` is provided,
 
 Stage 6B connects the image `download_url` path to the downloader and thumbnail helper. For image requests with `download_url`, `/infer` downloads the image into a temporary directory, generates a local JPEG thumbnail, and returns the existing `thumbnail_object_path` value. It does not upload the thumbnail to S3 yet. If download or thumbnail processing fails, `/infer` returns `status="failed"` with an `error` message instead of crashing. Image requests without `download_url` still use the placeholder behavior for Lambda coordinator testing.
 
-Stage 6C connects the video `download_url` path to the downloader and 1 FPS frame extraction helper. For video requests with `download_url`, `/infer` downloads the video into a temporary directory, extracts sampled frames locally, runs the current fake detector on each frame, and aggregates tags using the maximum count seen for each tag across sampled frames. It does not upload frames or poster images to S3 yet. If video download, frame extraction, or detection fails, `/infer` returns `status="failed"` with an `error` message instead of crashing. Video requests without `download_url` still use the placeholder behavior for Lambda coordinator testing.
+Stage 6C connects the video `download_url` path to the downloader and 1 FPS frame extraction helper. For video requests with `download_url`, `/infer` downloads the video into a temporary directory, extracts sampled frames locally, runs the configured detector on each frame, and aggregates tags using the maximum count seen for each tag across sampled frames. It does not upload frames or poster images to S3 yet. If video download, frame extraction, or detection fails, `/infer` returns `status="failed"` with an `error` message instead of crashing. Video requests without `download_url` still use the placeholder behavior for Lambda coordinator testing.
+
+Stage 8B adds optional provided model detector integration. When `USE_PROVIDED_MODEL=true` and the required model files are present, `detector.py` routes image detection through `provided_model_detector.py`. That module runs `mdv5a.pt` / MegaDetector to find animal bounding boxes, saves crop images in a temporary directory, classifies each crop with `model.pt`, and returns detections such as `{"label": "Alectura_lathami", "count": 1, "confidence": 1.0}`. The provided model package has been locally verified with the teacher's test image: MegaDetector produced `cropped_images/1-0.JPG`, and the fine-tuned classifier returned `Species: Alectura_lathami`, `Confidence: 1.0000`.
+
+If the provided model is disabled, model files are missing, or model loading/inference fails, the service falls back to `fake-detector-v0` so local development and coordinator contract tests keep working.
+
+## Provided Model Artifacts
+
+The provided model artifacts are local ignored files and must not be committed to Git:
+
+- `functions/media_processing/model_artifacts/`
+- `*.pt`
+
+Set `PROVIDED_MODEL_DIR` to the directory that contains:
+
+- `mdv5a.pt`
+- `model.pt`
+- `labels.txt`
+
+If `PROVIDED_MODEL_DIR` is not set, the service looks in:
+
+```bash
+functions/media_processing/model_artifacts/AussieEcoLense
+```
+
+Enable the provided model route with:
+
+```bash
+USE_PROVIDED_MODEL=true
+PROVIDED_MODEL_DIR=functions/media_processing/model_artifacts/AussieEcoLense
+```
+
+The runtime that enables this route must also install the teacher model package dependencies, including MegaDetector, PyTorch, TorchVision, and the package requirements noted in the provided AussieEcoLense README. These imports are lazy, so normal `fake-detector-v0` tests do not load those packages.
+
+For future Cloud Run deployment, the model package should be supplied outside Git, for example through a build-time or runtime artifact process such as GCS/GCP model download or mounted/copied deployment artifacts.
 
 ## Cloud Run Deployment
 
@@ -75,7 +110,7 @@ The `PORT` environment variable is read by the container command, with `8080` as
 Current endpoints:
 
 - `GET /health` has been tested online and returns `{"status": "ok"}`.
-- `POST /infer` returns placeholder inference results when no `download_url` is provided, and runs local image/video media preparation when a supported `download_url` is provided.
+- `POST /infer` returns inference results when no `download_url` is provided, and runs local image/video media preparation when a supported `download_url` is provided.
 
 After deployment, the Cloud Run service URL must be shared with Member A so the AWS Lambda coordinator can call `POST /infer`.
 
@@ -87,7 +122,8 @@ This Cloud Run service is responsible for media preparation and inference respon
 
 - local image thumbnail generation
 - local video 1 FPS frame extraction
-- fake detector / fallback tagging until real ML is added
+- fake detector fallback tagging
+- optional provided model image detection and crop classification
 - `tags`, `tag_counts`, `primary_species`, and `thumbnail_object_path` calculation
 
 The AWS Lambda coordinator remains responsible for:
@@ -97,7 +133,7 @@ The AWS Lambda coordinator remains responsible for:
 - writing DynamoDB metadata to table `fit5225-wildlife-media-metadata`
 - triggering SNS
 
-Current Cloud Run scope still does not include real ML, S3 artifact upload, DynamoDB writes, stored AWS credentials, or SNS notifications.
+Current Cloud Run scope still does not include S3 artifact upload, DynamoDB writes, stored AWS credentials, or SNS notifications. Real ML is optional and local-artifact backed in Stage 8B; production artifact delivery still needs a GCS/GCP deployment plan.
 
 ## Legacy Helper
 
@@ -105,9 +141,9 @@ Current Cloud Run scope still does not include real ML, S3 artifact upload, Dyna
 
 The final production entrypoint is Cloud Run HTTP `POST /infer`.
 
-## TODO For Real Integration
+## TODO For Production Integration
 
-- Replace the fake detector with the selected wildlife ML model.
+- Provide the model artifacts through a production-safe GCS/GCP deployment flow.
 - Use coordinator-provided thumbnail upload URLs instead of fake paths.
 - Upload generated thumbnails, frames, or poster images only after the team agrees on artifact paths and upload URL handling.
 - Return production-ready error details for failed inference.
@@ -115,7 +151,7 @@ The final production entrypoint is Cloud Run HTTP `POST /infer`.
 
 Planned next stages:
 
-- Stage 6D: real ML inference integration.
+- Stage 8B: provided model detector integration.
 - Later integration: upload generated thumbnails using coordinator-provided upload URLs.
 
 ## Running Tests

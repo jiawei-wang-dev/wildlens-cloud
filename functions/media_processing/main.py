@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Sequence, Union
 
 from db_client import FakeDbClient
-from detector import MODEL_VERSION, detect_image
+from detector import detect_image, get_model_version
 from models import Detection, MediaMetadata, ProcessingResult
 from storage_client import FakeStorageClient
 
@@ -144,7 +144,7 @@ def process_event(
         tags=sorted(tag_counts),
         tag_counts=tag_counts,
         primary_species=primary_species,
-        model_version=MODEL_VERSION,
+        model_version=get_model_version(),
         status="ready",
         created_at=now,
         updated_at=now,

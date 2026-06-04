@@ -9,7 +9,7 @@ from pydantic import BaseModel, model_validator
 
 try:
     from . import media_downloader
-    from .detector import MODEL_VERSION, detect_image
+    from .detector import detect_image, get_model_version
     from .image_processor import generate_thumbnail
     from .main import (
         aggregate_tag_counts,
@@ -21,7 +21,7 @@ try:
     from .video_processor import extract_frames_1fps
 except ImportError:
     import media_downloader
-    from detector import MODEL_VERSION, detect_image
+    from detector import detect_image, get_model_version
     from image_processor import generate_thumbnail
     from main import (
         aggregate_tag_counts,
@@ -95,7 +95,7 @@ def infer_media(request: InferenceRequest) -> InferenceResponse:
                 tags=[],
                 tag_counts={},
                 primary_species=None,
-                model_version=MODEL_VERSION,
+                model_version=get_model_version(),
                 status="failed",
                 thumbnail_object_path=None,
                 error=f"image processing failed: {exc}",
@@ -108,7 +108,7 @@ def infer_media(request: InferenceRequest) -> InferenceResponse:
             tags=sorted(tag_counts),
             tag_counts=tag_counts,
             primary_species=primary_species,
-            model_version=MODEL_VERSION,
+            model_version=get_model_version(),
             status="ready",
             thumbnail_object_path=thumbnail_object_path,
         )
@@ -134,7 +134,7 @@ def infer_media(request: InferenceRequest) -> InferenceResponse:
                 tags=[],
                 tag_counts={},
                 primary_species=None,
-                model_version=MODEL_VERSION,
+                model_version=get_model_version(),
                 status="failed",
                 thumbnail_object_path=None,
                 error=f"video processing failed: {exc}",
@@ -147,7 +147,7 @@ def infer_media(request: InferenceRequest) -> InferenceResponse:
             tags=sorted(tag_counts),
             tag_counts=tag_counts,
             primary_species=primary_species,
-            model_version=MODEL_VERSION,
+            model_version=get_model_version(),
             status="ready",
             thumbnail_object_path=None,
         )
@@ -170,7 +170,7 @@ def infer_media(request: InferenceRequest) -> InferenceResponse:
         tags=sorted(tag_counts),
         tag_counts=tag_counts,
         primary_species=primary_species,
-        model_version=MODEL_VERSION,
+        model_version=get_model_version(),
         status="ready",
         thumbnail_object_path=thumbnail_object_path,
     )
