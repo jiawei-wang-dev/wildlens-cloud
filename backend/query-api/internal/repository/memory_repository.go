@@ -113,3 +113,27 @@ func (r *MemoryRepository) UpdateTags(
 
 	return updatedFiles, nil
 }
+
+// DeleteFiles removes media records matching the supplied file IDs.
+func (r *MemoryRepository) DeleteFiles(
+	_ context.Context,
+	fileIDs []string,
+) ([]model.MediaFile, error) {
+	targetIDs := newFileIDSet(fileIDs)
+
+	deletedFiles := make([]model.MediaFile, 0)
+	remainingFiles := make([]model.MediaFile, 0, len(r.files))
+
+	for _, file := range r.files {
+		if _, exists := targetIDs[file.FileID]; exists {
+			deletedFiles = append(deletedFiles, file)
+			continue
+		}
+
+		remainingFiles = append(remainingFiles, file)
+	}
+
+	r.files = remainingFiles
+
+	return deletedFiles, nil
+}
