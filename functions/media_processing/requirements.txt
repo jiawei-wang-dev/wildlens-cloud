@@ -7,8 +7,3 @@ pillow
 requests
 opencv-python-headless
 google-cloud-storage
-megadetector==10.0.21
-onnx==1.16.2
-onnx2torch
-torch
-torchvision
