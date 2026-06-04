@@ -145,3 +145,37 @@ func (h *QueryHandler) UpdateTags(c *gin.Context) {
 		Files:        files,
 	})
 }
+
+// DeleteFiles removes multiple media files by their stable IDs.
+func (h *QueryHandler) DeleteFiles(c *gin.Context) {
+	var request model.FileDeleteRequest
+
+	if err := c.ShouldBindJSON(&request); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error": "invalid JSON body or missing required fields",
+		})
+		return
+	}
+
+	deletedFileIDs, err := h.service.DeleteFiles(
+		c.Request.Context(),
+		request.FileIDs,
+	)
+	if err != nil {
+		status := http.StatusInternalServerError
+
+		if errors.Is(err, service.ErrFileIDsRequired) {
+			status = http.StatusBadRequest
+		}
+
+		c.JSON(status, gin.H{
+			"error": err.Error(),
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, model.FileDeleteResponse{
+		DeletedCount:   len(deletedFileIDs),
+		DeletedFileIDs: deletedFileIDs,
+	})
+}

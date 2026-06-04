@@ -19,6 +19,8 @@ type fakeDynamoDBClient struct {
 	calls        int
 	updateInputs []*dynamodb.UpdateItemInput
 	updateErr    error
+	deleteInputs []*dynamodb.DeleteItemInput
+	deleteErr    error
 }
 
 func (f *fakeDynamoDBClient) Scan(
@@ -52,6 +54,20 @@ func (f *fakeDynamoDBClient) UpdateItem(
 	f.updateInputs = append(f.updateInputs, params)
 
 	return &dynamodb.UpdateItemOutput{}, nil
+}
+
+func (f *fakeDynamoDBClient) DeleteItem(
+	_ context.Context,
+	params *dynamodb.DeleteItemInput,
+	_ ...func(*dynamodb.Options),
+) (*dynamodb.DeleteItemOutput, error) {
+	if f.deleteErr != nil {
+		return nil, f.deleteErr
+	}
+
+	f.deleteInputs = append(f.deleteInputs, params)
+
+	return &dynamodb.DeleteItemOutput{}, nil
 }
 
 func TestDynamoDBRepositoryFindBySpeciesReadsAllPages(t *testing.T) {
@@ -321,6 +337,134 @@ func TestDynamoDBRepositoryUpdateTagsReturnsUpdateError(t *testing.T) {
 		[]string{"s3://bucket/originals/koala.jpg"},
 		[]string{"reviewed"},
 		TagOperationAdd,
+	)
+
+	if err == nil {
+		t.Fatal("expected an error, got nil")
+	}
+}
+
+func TestDynamoDBRepositoryDeleteFilesPersistsDeletion(t *testing.T) {
+	item := mustMarshalMediaFile(t, model.MediaFile{
+		FileID:              "checksum-image-001",
+		FileURL:             "s3://bucket/originals/koala.jpg",
+		ObjectPath:          "media/originals/koala.jpg",
+		ThumbnailObjectPath: "media/thumbnails/koala.jpg",
+		Status:              "ready",
+	})
+
+	client := &fakeDynamoDBClient{
+		pages: []*dynamodb.ScanOutput{
+			{
+				Items: []map[string]types.AttributeValue{
+					item,
+				},
+			},
+		},
+	}
+
+	repo := NewDynamoDBRepository(client, "test-table")
+
+	files, err := repo.DeleteFiles(
+		context.Background(),
+		[]string{"checksum-image-001"},
+	)
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+
+	if len(files) != 1 {
+		t.Fatalf("expected 1 deleted file, got %d", len(files))
+	}
+
+	if files[0].FileID != "checksum-image-001" {
+		t.Fatalf("unexpected deleted file ID: %s", files[0].FileID)
+	}
+
+	if len(client.deleteInputs) != 1 {
+		t.Fatalf(
+			"expected 1 DeleteItem call, got %d",
+			len(client.deleteInputs),
+		)
+	}
+
+	input := client.deleteInputs[0]
+
+	key, exists := input.Key["file_id"]
+	if !exists {
+		t.Fatal("expected file_id key")
+	}
+
+	fileID, ok := key.(*types.AttributeValueMemberS)
+	if !ok {
+		t.Fatal("expected string file_id key")
+	}
+
+	if fileID.Value != "checksum-image-001" {
+		t.Fatalf("unexpected file_id: %s", fileID.Value)
+	}
+}
+
+func TestDynamoDBRepositoryDeleteFilesIgnoresUnknownID(t *testing.T) {
+	item := mustMarshalMediaFile(t, model.MediaFile{
+		FileID:  "checksum-image-001",
+		FileURL: "s3://bucket/originals/koala.jpg",
+	})
+
+	client := &fakeDynamoDBClient{
+		pages: []*dynamodb.ScanOutput{
+			{
+				Items: []map[string]types.AttributeValue{
+					item,
+				},
+			},
+		},
+	}
+
+	repo := NewDynamoDBRepository(client, "test-table")
+
+	files, err := repo.DeleteFiles(
+		context.Background(),
+		[]string{"missing-file-id"},
+	)
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+
+	if len(files) != 0 {
+		t.Fatalf("expected 0 deleted files, got %d", len(files))
+	}
+
+	if len(client.deleteInputs) != 0 {
+		t.Fatalf(
+			"expected 0 DeleteItem calls, got %d",
+			len(client.deleteInputs),
+		)
+	}
+}
+
+func TestDynamoDBRepositoryDeleteFilesReturnsDeleteError(t *testing.T) {
+	item := mustMarshalMediaFile(t, model.MediaFile{
+		FileID:  "checksum-image-001",
+		FileURL: "s3://bucket/originals/koala.jpg",
+	})
+
+	client := &fakeDynamoDBClient{
+		pages: []*dynamodb.ScanOutput{
+			{
+				Items: []map[string]types.AttributeValue{
+					item,
+				},
+			},
+		},
+		deleteErr: errors.New("delete failed"),
+	}
+
+	repo := NewDynamoDBRepository(client, "test-table")
+
+	_, err := repo.DeleteFiles(
+		context.Background(),
+		[]string{"checksum-image-001"},
 	)
 
 	if err == nil {
