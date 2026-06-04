@@ -15,6 +15,7 @@ Implemented in this skeleton:
 - fake detector fallback and model version reporting
 - optional provided AussieEcoLense model detector integration
 - GCS model artifact loading for Cloud Run
+- Cloud Run runtime dependencies for the provided model path
 - image tag count aggregation and primary species selection
 - video per-frame tag aggregation using the maximum species count across sampled frames
 - Stage 6A `download_url` helper for downloading coordinator-provided media URLs into a temporary directory
@@ -68,6 +69,8 @@ If the provided model is disabled, model files are missing, or model loading/inf
 
 Stage 8C adds Cloud Run model artifact loading from GCS. When `USE_PROVIDED_MODEL=true`, `detector.py` first asks `model_artifact_loader.py` for a usable local model directory. The loader uses a complete local `PROVIDED_MODEL_DIR` when available. If the local directory is missing or incomplete and `GCS_MODEL_BUCKET` plus `GCS_MODEL_PREFIX` are configured, it downloads `mdv5a.pt`, `model.pt`, `labels.txt`, and `config.yaml` into `MODEL_ARTIFACT_CACHE_DIR`, then points the provided detector at that cache directory. If GCS setup, download, or model loading fails, the service still falls back to `fake-detector-v0`.
 
+Stage 8D adds the Cloud Run Python runtime dependencies needed by the provided model path: MegaDetector, PyTorch, TorchVision, and onnx2torch. These packages are installed into the container through `requirements.txt`; the model weights remain external artifacts loaded from a local directory or GCS. The heavy model packages are still lazy-imported by `provided_model_detector.py`, so startup and fake-detector fallback do not require loading the model.
+
 ## Provided Model Artifacts
 
 The provided model artifacts are local ignored files and must not be committed to Git:
@@ -114,9 +117,7 @@ gs://fit5225-wildlens-model-artifacts/aussie-ecolense/v1/
 
 The Cloud Run service account needs read access to those objects, such as `roles/storage.objectViewer`.
 
-The runtime that enables this route must also install the teacher model package dependencies, including MegaDetector, PyTorch, TorchVision, and the package requirements noted in the provided AussieEcoLense README. These imports are lazy, so normal `fake-detector-v0` tests do not load those packages.
-
-`google-cloud-storage` is included for artifact loading. The teacher model runtime dependencies are still handled separately from the main service requirements.
+The container installs the provided model runtime packages from `requirements.txt`, including `megadetector`, `onnx2torch`, `torch`, and `torchvision`. `google-cloud-storage` is included for artifact loading. The code does not pin `protobuf`; the local verified run tolerated a protobuf dependency warning, so this stays unpinned unless a Cloud Run build or runtime test proves otherwise.
 
 ## Cloud Run Deployment
 
@@ -139,6 +140,24 @@ After deployment, the Cloud Run service URL must be shared with Member A so the 
 
 The service still does not add or store AWS credentials.
 
+To deploy the provided model runtime path with GCS-backed artifacts:
+
+```powershell
+gcloud run deploy wildlens-media-infer `
+  --source functions/media_processing `
+  --region australia-southeast1 `
+  --allow-unauthenticated `
+  --min-instances 0 `
+  --max-instances 1 `
+  --memory 4Gi `
+  --cpu 2 `
+  --timeout 900 `
+  --concurrency 1 `
+  --set-env-vars USE_PROVIDED_MODEL=true,GCS_MODEL_BUCKET=fit5225-wildlens-model-artifacts,GCS_MODEL_PREFIX=aussie-ecolense/v1,MODEL_ARTIFACT_CACHE_DIR=/tmp/aussie-ecolense/v1
+```
+
+The `4Gi` memory and `2` CPU settings are intentionally conservative for PyTorch plus MegaDetector cold starts and model inference. Reducing them is possible after a successful cloud runtime test with realistic images.
+
 ## Responsibilities
 
 This Cloud Run service is responsible for media preparation and inference response work:
@@ -156,7 +175,7 @@ The AWS Lambda coordinator remains responsible for:
 - writing DynamoDB metadata to table `fit5225-wildlife-media-metadata`
 - triggering SNS
 
-Current Cloud Run scope still does not include S3 artifact upload, DynamoDB writes, stored AWS credentials, or SNS notifications. Real ML is optional and artifact-backed in Stage 8B/8C; `fake-detector-v0` remains the fallback, not the intended provided-model path.
+Current Cloud Run scope still does not include S3 artifact upload, DynamoDB writes, stored AWS credentials, or SNS notifications. Real ML is optional and artifact-backed in Stage 8B/8C/8D; `fake-detector-v0` remains the fallback, not the intended provided-model path.
 
 ## Legacy Helper
 
@@ -166,7 +185,7 @@ The final production entrypoint is Cloud Run HTTP `POST /infer`.
 
 ## TODO For Production Integration
 
-- Finalize the teacher model runtime dependency installation for Cloud Run.
+- Run a real Cloud Run `/infer` test with `USE_PROVIDED_MODEL=true` and a coordinator-provided image URL.
 - Use coordinator-provided thumbnail upload URLs instead of fake paths.
 - Upload generated thumbnails, frames, or poster images only after the team agrees on artifact paths and upload URL handling.
 - Return production-ready error details for failed inference.
@@ -174,7 +193,7 @@ The final production entrypoint is Cloud Run HTTP `POST /infer`.
 
 Planned next stages:
 
-- Stage 8C: GCS model artifact loading for Cloud Run.
+- Stage 8D: Cloud Run provided model runtime support.
 - Later integration: upload generated thumbnails using coordinator-provided upload URLs.
 
 ## Running Tests
