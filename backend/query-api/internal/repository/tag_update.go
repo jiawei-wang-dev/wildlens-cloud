@@ -20,12 +20,26 @@ var ErrInvalidTagOperation = errors.New(
 	"operation must be 0 (remove) or 1 (add)",
 )
 
+// validateTagOperation checks whether the requested operation is supported.
+func validateTagOperation(operation int) error {
+	if operation != TagOperationRemove &&
+		operation != TagOperationAdd {
+		return ErrInvalidTagOperation
+	}
+
+	return nil
+}
+
 // applyTagUpdate modifies tags and counts for one media file.
 func applyTagUpdate(
 	file *model.MediaFile,
 	tags []string,
 	operation int,
 ) error {
+	if err := validateTagOperation(operation); err != nil {
+		return err
+	}
+
 	normalisedTags := normaliseTags(tags)
 
 	switch operation {
@@ -34,9 +48,6 @@ func applyTagUpdate(
 
 	case TagOperationRemove:
 		removeTags(file, normalisedTags)
-
-	default:
-		return ErrInvalidTagOperation
 	}
 
 	file.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
@@ -44,6 +55,7 @@ func applyTagUpdate(
 	return nil
 }
 
+// addTags adds new tags while preserving existing tag counts.
 func addTags(file *model.MediaFile, tags []string) {
 	if file.TagCounts == nil {
 		file.TagCounts = make(map[string]int)
@@ -64,13 +76,19 @@ func addTags(file *model.MediaFile, tags []string) {
 		}
 
 		existingTags[tag] = struct{}{}
-		normalisedExistingTags = append(normalisedExistingTags, tag)
+		normalisedExistingTags = append(
+			normalisedExistingTags,
+			tag,
+		)
 	}
 
 	for _, tag := range tags {
 		if _, exists := existingTags[tag]; !exists {
 			existingTags[tag] = struct{}{}
-			normalisedExistingTags = append(normalisedExistingTags, tag)
+			normalisedExistingTags = append(
+				normalisedExistingTags,
+				tag,
+			)
 		}
 
 		if _, exists := file.TagCounts[tag]; !exists {
@@ -81,6 +99,7 @@ func addTags(file *model.MediaFile, tags []string) {
 	file.Tags = normalisedExistingTags
 }
 
+// removeTags removes requested tags from both tags and tag_counts.
 func removeTags(file *model.MediaFile, tags []string) {
 	tagsToRemove := make(map[string]struct{})
 
@@ -111,6 +130,7 @@ func removeTags(file *model.MediaFile, tags []string) {
 	}
 }
 
+// normaliseTags trims spaces, converts tags to lowercase and removes duplicates.
 func normaliseTags(tags []string) []string {
 	results := make([]string, 0, len(tags))
 	seen := make(map[string]struct{})
@@ -133,6 +153,7 @@ func normaliseTags(tags []string) []string {
 	return results
 }
 
+// newURLSet trims URLs and converts them into a lookup set.
 func newURLSet(urls []string) map[string]struct{} {
 	results := make(map[string]struct{})
 
@@ -149,6 +170,7 @@ func newURLSet(urls []string) map[string]struct{} {
 	return results
 }
 
+// matchesMediaURL checks both the original file URL and thumbnail URL.
 func matchesMediaURL(
 	file model.MediaFile,
 	urls map[string]struct{},
