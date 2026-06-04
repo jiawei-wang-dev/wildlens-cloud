@@ -29,7 +29,7 @@ def make_infer_payload(**overrides):
         "file_type": "image",
         "mime_type": "image/jpeg",
         "checksum_sha256": VALID_CHECKSUM,
-        "download_url": "https://example.test/download",
+        "download_url": None,
         "thumbnail_upload_url": "https://example.test/thumbnail-upload",
     }
     payload.update(overrides)
@@ -48,6 +48,93 @@ def test_infer_accepts_valid_image_request_and_returns_ready_result():
     assert body["tag_counts"] == {"koala": 1}
     assert body["primary_species"] == "koala"
     assert body["status"] == "ready"
+    assert body["thumbnail_object_path"] == f"media/thumbnails/{VALID_CHECKSUM}.jpg"
+
+
+def test_infer_image_with_download_url_generates_thumbnail(monkeypatch, tmp_path):
+    client = TestClient(media_app.app)
+    calls = {}
+    downloaded_path = tmp_path / "koala.jpg"
+    downloaded_path.write_bytes(b"fake image bytes")
+
+    def fake_download_media(download_url, target_dir, filename):
+        calls["download"] = {
+            "download_url": download_url,
+            "target_dir": target_dir,
+            "filename": filename,
+        }
+        return downloaded_path
+
+    def fake_generate_thumbnail(input_path, output_path):
+        calls["thumbnail"] = {
+            "input_path": input_path,
+            "output_path": output_path,
+        }
+        Path(output_path).write_bytes(b"fake thumbnail bytes")
+        return {
+            "width": 300,
+            "height": 200,
+            "output_path": output_path,
+            "size_bytes": 20,
+        }
+
+    monkeypatch.setattr(media_app, "download_media", fake_download_media)
+    monkeypatch.setattr(media_app, "generate_thumbnail", fake_generate_thumbnail)
+
+    response = client.post(
+        "/infer",
+        json=make_infer_payload(download_url="https://example.test/download"),
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == "ready"
+    assert body["tags"] == ["koala"]
+    assert body["tag_counts"] == {"koala": 1}
+    assert body["thumbnail_object_path"] == f"media/thumbnails/{VALID_CHECKSUM}.jpg"
+    assert calls["download"]["download_url"] == "https://example.test/download"
+    assert calls["download"]["filename"] == "koala.jpg"
+    assert calls["thumbnail"]["input_path"] == str(downloaded_path)
+    assert calls["thumbnail"]["output_path"].endswith(f"{VALID_CHECKSUM}-thumbnail.jpg")
+
+
+def test_infer_image_download_failure_returns_failed_response(monkeypatch):
+    client = TestClient(media_app.app)
+
+    def fake_download_media(download_url, target_dir, filename):
+        raise RuntimeError("download failed")
+
+    monkeypatch.setattr(media_app, "download_media", fake_download_media)
+
+    response = client.post(
+        "/infer",
+        json=make_infer_payload(download_url="https://example.test/download"),
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == "failed"
+    assert body["tags"] == []
+    assert body["tag_counts"] == {}
+    assert body["primary_species"] is None
+    assert body["thumbnail_object_path"] is None
+    assert "download failed" in body["error"]
+
+
+def test_infer_without_download_url_keeps_placeholder_response(monkeypatch):
+    client = TestClient(media_app.app)
+
+    def fail_if_called(download_url, target_dir, filename):
+        raise AssertionError("download_media should not be called without download_url")
+
+    monkeypatch.setattr(media_app, "download_media", fail_if_called)
+
+    response = client.post("/infer", json=make_infer_payload(download_url=None))
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == "ready"
+    assert body["tags"] == ["koala"]
     assert body["thumbnail_object_path"] == f"media/thumbnails/{VALID_CHECKSUM}.jpg"
 
 

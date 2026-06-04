@@ -16,6 +16,7 @@ Implemented in this skeleton:
 - image tag count aggregation and primary species selection
 - video per-frame tag aggregation using the maximum species count across sampled frames
 - Stage 6A `download_url` helper for downloading coordinator-provided media URLs into a temporary directory
+- Stage 6B image path that downloads media and generates a real local thumbnail when `download_url` is provided
 - image thumbnail helper
 - video frame extraction helper at 1 frame per second
 - metadata/result models used by local tests and coordinator contract discussion
@@ -53,6 +54,8 @@ Current placeholder behavior returns `status="ready"` for supported image/video 
 Stage 6A adds `download_media(download_url, target_dir, filename)` in `media_downloader.py` for future `download_url` integration. The helper validates that `filename` is a plain file name, writes to `/tmp` or another caller-provided temporary directory, uses a request timeout, and raises clear errors for HTTP, network, timeout, and file-write failures.
 
 The production Cloud Run path remains `POST /infer`. This stage does not require `/infer` to successfully download real media yet, so existing placeholder Cloud Run integration can continue to work with fake URLs.
+
+Stage 6B connects the image `download_url` path to the downloader and thumbnail helper. For image requests with `download_url`, `/infer` downloads the image into a temporary directory, generates a local JPEG thumbnail, and returns the existing `thumbnail_object_path` value. If download or thumbnail processing fails, `/infer` returns `status="failed"` with an `error` message instead of crashing. Image requests without `download_url` still use the placeholder behavior for Lambda coordinator testing.
 
 ## Cloud Run Deployment Preparation
 
@@ -109,9 +112,9 @@ The final production entrypoint is Cloud Run HTTP `POST /infer`.
 
 Planned next stages:
 
-- Stage 6B: real thumbnail generation/upload integration.
 - Stage 6C: real video frame extraction integration.
 - Stage 6D: real ML inference integration.
+- Later integration: upload generated thumbnails using coordinator-provided upload URLs.
 
 ## Running Tests
 
