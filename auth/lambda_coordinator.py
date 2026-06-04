@@ -30,24 +30,33 @@ def check_duplicate(file_id):
     return 'Item' in response
 
 
-def write_to_dynamodb(file_id, bucket, key, file_type, tags, tag_counts, primary_species, model_version, thumbnail_path):
+def write_to_dynamodb(file_id, bucket, key, file_type, filename, mime_type, tags, tag_counts, primary_species, model_version, thumbnail_path):
     """Write media metadata to DynamoDB"""
     table = dynamodb.Table(DYNAMODB_TABLE)
     
     file_url = f"https://{bucket}.s3.amazonaws.com/{key}"
     thumbnail_url = f"https://{bucket}.s3.amazonaws.com/{thumbnail_path}" if thumbnail_path else None
+    now = datetime.utcnow().isoformat()
     
     item = {
         'file_id': file_id,
+        'checksum_sha256': file_id,
+        'bucket': bucket,
+        'object_path': key,
+        'original_filename': filename,
+        'mime_type': mime_type,
+        'file_type': file_type,
         'file_url': file_url,
         'thumbnail_url': thumbnail_url,
-        'file_type': file_type,
+        'thumbnail_object_path': thumbnail_path,
         'tags': tags,
         'tag_counts': tag_counts,
         'primary_species': primary_species,
         'model_version': model_version,
         'status': 'ready',
-        'created_at': datetime.utcnow().isoformat()
+        'storage_provider': 'aws',
+        'created_at': now,
+        'updated_at': now
     }
     
     table.put_item(Item=item)
@@ -161,6 +170,8 @@ def lambda_handler(event, context):
                 bucket=bucket,
                 key=key,
                 file_type=file_type,
+                filename=key.split('/')[-1],
+                mime_type='video/mp4' if file_type == 'video' else 'image/jpeg',
                 tags=infer_result.get('tags', []),
                 tag_counts=infer_result.get('tag_counts', {}),
                 primary_species=infer_result.get('primary_species', ''),
