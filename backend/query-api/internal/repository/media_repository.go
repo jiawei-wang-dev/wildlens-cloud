@@ -34,4 +34,9 @@ type MediaRepository interface {
 		ctx context.Context,
 		fileIDs []string,
 	) ([]model.MediaFile, error)
+
+	ListObservations(
+		ctx context.Context,
+		options ObservationListOptions,
+	) (ObservationPage, error)
 }

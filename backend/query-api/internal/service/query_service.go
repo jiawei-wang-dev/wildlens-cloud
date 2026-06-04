@@ -10,13 +10,16 @@ import (
 )
 
 var (
-	ErrSpeciesRequired      = errors.New("species is required")
-	ErrTagsRequired         = errors.New("at least one tag is required")
-	ErrInvalidMinimumCount  = errors.New("minimum tag count must be greater than zero")
-	ErrThumbnailURLRequired = errors.New("thumbnail_url is required")
-	ErrURLsRequired         = errors.New("at least one URL is required")
-	ErrTagOperationRequired = errors.New("operation is required")
-	ErrFileIDsRequired      = errors.New("at least one file_id is required")
+	ErrSpeciesRequired         = errors.New("species is required")
+	ErrTagsRequired            = errors.New("at least one tag is required")
+	ErrInvalidMinimumCount     = errors.New("minimum tag count must be greater than zero")
+	ErrThumbnailURLRequired    = errors.New("thumbnail_url is required")
+	ErrURLsRequired            = errors.New("at least one URL is required")
+	ErrTagOperationRequired    = errors.New("operation is required")
+	ErrFileIDsRequired         = errors.New("at least one file_id is required")
+	ErrInvalidObservationLimit = errors.New(
+		"limit must be between 1 and 50",
+	)
 )
 
 // QueryService contains media query business logic.
@@ -154,4 +157,30 @@ func (s *QueryService) DeleteFiles(
 	}
 
 	return deletedFileIDs, nil
+}
+
+// ListObservations validates list filters and returns one page.
+func (s *QueryService) ListObservations(
+	ctx context.Context,
+	limit int,
+	nextToken string,
+	species string,
+	fileType string,
+	status string,
+) (repository.ObservationPage, error) {
+	if limit < 1 || limit > repository.MaxObservationLimit {
+		return repository.ObservationPage{},
+			ErrInvalidObservationLimit
+	}
+
+	return s.repo.ListObservations(
+		ctx,
+		repository.ObservationListOptions{
+			Limit:     limit,
+			NextToken: strings.TrimSpace(nextToken),
+			Species:   strings.TrimSpace(species),
+			FileType:  strings.TrimSpace(fileType),
+			Status:    strings.TrimSpace(status),
+		},
+	)
 }

@@ -19,6 +19,7 @@ func New(queryHandler *handler.QueryHandler) *gin.Engine {
 		api.POST("/query/thumbnail", queryHandler.FindOriginalByThumbnailURL)
 		api.POST("/tags/update", queryHandler.UpdateTags)
 		api.DELETE("/files", queryHandler.DeleteFiles)
+		api.GET("/observations", queryHandler.ListObservations)
 	}
 
 	return engine
