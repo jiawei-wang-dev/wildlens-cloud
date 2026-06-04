@@ -106,3 +106,42 @@ func (h *QueryHandler) FindOriginalByThumbnailURL(c *gin.Context) {
 		"file_url": fileURL,
 	})
 }
+
+// UpdateTags adds or removes tags for multiple media files.
+func (h *QueryHandler) UpdateTags(c *gin.Context) {
+	var request model.TagUpdateRequest
+
+	if err := c.ShouldBindJSON(&request); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error": "invalid JSON body or missing required fields",
+		})
+		return
+	}
+
+	files, err := h.service.UpdateTags(
+		c.Request.Context(),
+		request.URLs,
+		request.Tags,
+		request.Operation,
+	)
+	if err != nil {
+		status := http.StatusInternalServerError
+
+		if errors.Is(err, service.ErrURLsRequired) ||
+			errors.Is(err, service.ErrTagsRequired) ||
+			errors.Is(err, service.ErrTagOperationRequired) ||
+			errors.Is(err, repository.ErrInvalidTagOperation) {
+			status = http.StatusBadRequest
+		}
+
+		c.JSON(status, gin.H{
+			"error": err.Error(),
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, model.TagUpdateResponse{
+		UpdatedCount: len(files),
+		Files:        files,
+	})
+}

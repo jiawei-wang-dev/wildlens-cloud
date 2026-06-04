@@ -8,23 +8,30 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/feature/dynamodb/attributevalue"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
+	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 
 	"github.com/jiawei-wang-dev/wildlens-cloud/backend/query-api/internal/model"
 )
 
-// DynamoDBScanAPI contains the DynamoDB operation used by this repository.
+// DynamoDBAPI contains the DynamoDB operations used by this repository.
 // A small interface makes it easier to test with a fake client.
-type DynamoDBScanAPI interface {
+type DynamoDBAPI interface {
 	Scan(
 		ctx context.Context,
 		params *dynamodb.ScanInput,
 		optFns ...func(*dynamodb.Options),
 	) (*dynamodb.ScanOutput, error)
+
+	UpdateItem(
+		ctx context.Context,
+		params *dynamodb.UpdateItemInput,
+		optFns ...func(*dynamodb.Options),
+	) (*dynamodb.UpdateItemOutput, error)
 }
 
-// DynamoDBRepository reads media metadata from DynamoDB.
+// DynamoDBRepository reads and updates media metadata in DynamoDB.
 type DynamoDBRepository struct {
-	client    DynamoDBScanAPI
+	client    DynamoDBAPI
 	tableName string
 }
 
@@ -33,7 +40,7 @@ var _ MediaRepository = (*DynamoDBRepository)(nil)
 
 // NewDynamoDBRepository creates a DynamoDB-backed repository.
 func NewDynamoDBRepository(
-	client DynamoDBScanAPI,
+	client DynamoDBAPI,
 	tableName string,
 ) *DynamoDBRepository {
 	return &DynamoDBRepository{
@@ -115,6 +122,104 @@ func (r *DynamoDBRepository) FindOriginalByThumbnailURL(
 	}
 
 	return "", ErrMediaNotFound
+}
+
+// UpdateTags adds or removes tags for media files matching the supplied URLs.
+func (r *DynamoDBRepository) UpdateTags(
+	ctx context.Context,
+	urls []string,
+	tags []string,
+	operation int,
+) ([]model.MediaFile, error) {
+	if err := validateTagOperation(operation); err != nil {
+		return nil, err
+	}
+
+	files, err := r.scanAll(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	targetURLs := newURLSet(urls)
+	updatedFiles := make([]model.MediaFile, 0)
+
+	for index := range files {
+		if !matchesMediaURL(files[index], targetURLs) {
+			continue
+		}
+
+		if err := applyTagUpdate(
+			&files[index],
+			tags,
+			operation,
+		); err != nil {
+			return nil, err
+		}
+
+		if err := r.persistTagUpdate(ctx, files[index]); err != nil {
+			return nil, err
+		}
+
+		updatedFiles = append(updatedFiles, files[index])
+	}
+
+	return updatedFiles, nil
+}
+
+// persistTagUpdate updates only tag-related DynamoDB fields.
+// Other media metadata remains unchanged.
+func (r *DynamoDBRepository) persistTagUpdate(
+	ctx context.Context,
+	file model.MediaFile,
+) error {
+	if strings.TrimSpace(file.FileID) == "" {
+		return fmt.Errorf("persist tag update: file_id is required")
+	}
+
+	tagsValue, err := attributevalue.Marshal(file.Tags)
+	if err != nil {
+		return fmt.Errorf("encode tags: %w", err)
+	}
+
+	tagCountsValue, err := attributevalue.Marshal(file.TagCounts)
+	if err != nil {
+		return fmt.Errorf("encode tag counts: %w", err)
+	}
+
+	updatedAtValue, err := attributevalue.Marshal(file.UpdatedAt)
+	if err != nil {
+		return fmt.Errorf("encode updated_at: %w", err)
+	}
+
+	_, err = r.client.UpdateItem(
+		ctx,
+		&dynamodb.UpdateItemInput{
+			TableName: aws.String(r.tableName),
+			Key: map[string]types.AttributeValue{
+				"file_id": &types.AttributeValueMemberS{
+					Value: file.FileID,
+				},
+			},
+			UpdateExpression: aws.String(
+				"SET #tags = :tags, #tag_counts = :tag_counts, #updated_at = :updated_at",
+			),
+			ExpressionAttributeNames: map[string]string{
+				"#tags":       "tags",
+				"#tag_counts": "tag_counts",
+				"#updated_at": "updated_at",
+			},
+			ExpressionAttributeValues: map[string]types.AttributeValue{
+				":tags":       tagsValue,
+				":tag_counts": tagCountsValue,
+				":updated_at": updatedAtValue,
+			},
+		},
+	)
+	if err != nil {
+		return fmt.Errorf("update DynamoDB tags: %w", err)
+	}
+
+	return nil
 }
 
 // scanAll reads all DynamoDB Scan pages and converts items into MediaFile values.

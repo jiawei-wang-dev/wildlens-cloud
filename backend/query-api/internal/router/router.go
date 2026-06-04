@@ -17,6 +17,7 @@ func New(queryHandler *handler.QueryHandler) *gin.Engine {
 		api.POST("/query/species", queryHandler.FindBySpecies)
 		api.POST("/query/tags", queryHandler.FindByTagCounts)
 		api.POST("/query/thumbnail", queryHandler.FindOriginalByThumbnailURL)
+		api.POST("/tags/update", queryHandler.UpdateTags)
 	}
 
 	return engine

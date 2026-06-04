@@ -22,4 +22,11 @@ type MediaRepository interface {
 		ctx context.Context,
 		thumbnailURL string,
 	) (string, error)
+
+	UpdateTags(
+		ctx context.Context,
+		urls []string,
+		tags []string,
+		operation int,
+	) ([]model.MediaFile, error)
 }

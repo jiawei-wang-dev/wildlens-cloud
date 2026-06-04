@@ -14,9 +14,11 @@ import (
 
 // fakeDynamoDBClient simulates DynamoDB Scan responses without AWS access.
 type fakeDynamoDBClient struct {
-	pages []*dynamodb.ScanOutput
-	err   error
-	calls int
+	pages        []*dynamodb.ScanOutput
+	err          error
+	calls        int
+	updateInputs []*dynamodb.UpdateItemInput
+	updateErr    error
 }
 
 func (f *fakeDynamoDBClient) Scan(
@@ -36,6 +38,20 @@ func (f *fakeDynamoDBClient) Scan(
 	f.calls++
 
 	return page, nil
+}
+
+func (f *fakeDynamoDBClient) UpdateItem(
+	_ context.Context,
+	params *dynamodb.UpdateItemInput,
+	_ ...func(*dynamodb.Options),
+) (*dynamodb.UpdateItemOutput, error) {
+	if f.updateErr != nil {
+		return nil, f.updateErr
+	}
+
+	f.updateInputs = append(f.updateInputs, params)
+
+	return &dynamodb.UpdateItemOutput{}, nil
 }
 
 func TestDynamoDBRepositoryFindBySpeciesReadsAllPages(t *testing.T) {
@@ -206,4 +222,108 @@ func mustMarshalMediaFile(
 	}
 
 	return item
+}
+
+func TestDynamoDBRepositoryUpdateTagsPersistsChanges(t *testing.T) {
+	item := mustMarshalMediaFile(t, model.MediaFile{
+		FileID:       "checksum-image-001",
+		FileURL:      "s3://bucket/originals/koala.jpg",
+		ThumbnailURL: "s3://bucket/thumbnails/koala.jpg",
+		Tags:         []string{"koala"},
+		TagCounts: map[string]int{
+			"koala": 3,
+		},
+		Status: "ready",
+	})
+
+	client := &fakeDynamoDBClient{
+		pages: []*dynamodb.ScanOutput{
+			{
+				Items: []map[string]types.AttributeValue{
+					item,
+				},
+			},
+		},
+	}
+
+	repo := NewDynamoDBRepository(client, "test-table")
+
+	files, err := repo.UpdateTags(
+		context.Background(),
+		[]string{"s3://bucket/thumbnails/koala.jpg"},
+		[]string{"reviewed"},
+		TagOperationAdd,
+	)
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+
+	if len(files) != 1 {
+		t.Fatalf("expected 1 updated file, got %d", len(files))
+	}
+
+	if files[0].TagCounts["reviewed"] != 1 {
+		t.Fatalf(
+			"expected reviewed count 1, got %d",
+			files[0].TagCounts["reviewed"],
+		)
+	}
+
+	if len(client.updateInputs) != 1 {
+		t.Fatalf(
+			"expected 1 UpdateItem call, got %d",
+			len(client.updateInputs),
+		)
+	}
+
+	input := client.updateInputs[0]
+
+	key, exists := input.Key["file_id"]
+	if !exists {
+		t.Fatal("expected file_id key")
+	}
+
+	fileID, ok := key.(*types.AttributeValueMemberS)
+	if !ok {
+		t.Fatal("expected string file_id key")
+	}
+
+	if fileID.Value != "checksum-image-001" {
+		t.Fatalf("unexpected file_id: %s", fileID.Value)
+	}
+}
+
+func TestDynamoDBRepositoryUpdateTagsReturnsUpdateError(t *testing.T) {
+	item := mustMarshalMediaFile(t, model.MediaFile{
+		FileID:  "checksum-image-001",
+		FileURL: "s3://bucket/originals/koala.jpg",
+		Tags:    []string{"koala"},
+		TagCounts: map[string]int{
+			"koala": 1,
+		},
+	})
+
+	client := &fakeDynamoDBClient{
+		pages: []*dynamodb.ScanOutput{
+			{
+				Items: []map[string]types.AttributeValue{
+					item,
+				},
+			},
+		},
+		updateErr: errors.New("update failed"),
+	}
+
+	repo := NewDynamoDBRepository(client, "test-table")
+
+	_, err := repo.UpdateTags(
+		context.Background(),
+		[]string{"s3://bucket/originals/koala.jpg"},
+		[]string{"reviewed"},
+		TagOperationAdd,
+	)
+
+	if err == nil {
+		t.Fatal("expected an error, got nil")
+	}
 }
