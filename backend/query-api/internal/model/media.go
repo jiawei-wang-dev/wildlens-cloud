@@ -36,3 +36,16 @@ type TagCountQueryRequest map[string]int
 type ThumbnailQueryRequest struct {
 	ThumbnailURL string `json:"thumbnail_url" binding:"required"`
 }
+
+// TagUpdateRequest adds or removes tags for multiple media files.
+type TagUpdateRequest struct {
+	URLs      []string `json:"urls" binding:"required"`
+	Tags      []string `json:"tags" binding:"required"`
+	Operation *int     `json:"operation" binding:"required"`
+}
+
+// TagUpdateResponse contains media files changed by a bulk tag update.
+type TagUpdateResponse struct {
+	UpdatedCount int         `json:"updated_count"`
+	Files        []MediaFile `json:"files"`
+}

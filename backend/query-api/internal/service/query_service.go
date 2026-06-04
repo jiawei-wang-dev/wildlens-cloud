@@ -14,6 +14,8 @@ var (
 	ErrTagsRequired         = errors.New("at least one tag is required")
 	ErrInvalidMinimumCount  = errors.New("minimum tag count must be greater than zero")
 	ErrThumbnailURLRequired = errors.New("thumbnail_url is required")
+	ErrURLsRequired         = errors.New("at least one URL is required")
+	ErrTagOperationRequired = errors.New("operation is required")
 )
 
 // QueryService contains media query business logic.
@@ -66,4 +68,56 @@ func (s *QueryService) FindOriginalByThumbnailURL(
 	}
 
 	return s.repo.FindOriginalByThumbnailURL(ctx, thumbnailURL)
+}
+
+// UpdateTags validates and applies a bulk tag update.
+func (s *QueryService) UpdateTags(
+	ctx context.Context,
+	urls []string,
+	tags []string,
+	operation *int,
+) ([]model.MediaFile, error) {
+	cleanURLs := make([]string, 0, len(urls))
+
+	for _, url := range urls {
+		url = strings.TrimSpace(url)
+
+		if url != "" {
+			cleanURLs = append(cleanURLs, url)
+		}
+	}
+
+	if len(cleanURLs) == 0 {
+		return nil, ErrURLsRequired
+	}
+
+	cleanTags := make([]string, 0, len(tags))
+
+	for _, tag := range tags {
+		tag = strings.TrimSpace(tag)
+
+		if tag != "" {
+			cleanTags = append(cleanTags, tag)
+		}
+	}
+
+	if len(cleanTags) == 0 {
+		return nil, ErrTagsRequired
+	}
+
+	if operation == nil {
+		return nil, ErrTagOperationRequired
+	}
+
+	if *operation != repository.TagOperationRemove &&
+		*operation != repository.TagOperationAdd {
+		return nil, repository.ErrInvalidTagOperation
+	}
+
+	return s.repo.UpdateTags(
+		ctx,
+		cleanURLs,
+		cleanTags,
+		*operation,
+	)
 }

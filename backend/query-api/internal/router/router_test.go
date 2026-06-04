@@ -296,3 +296,179 @@ func TestFindOriginalByThumbnailURLReturnsNotFound(t *testing.T) {
 		t.Fatalf("expected status 404, got %d", response.Code)
 	}
 }
+
+func TestUpdateTagsAddsTag(t *testing.T) {
+	engine := newTestEngine()
+
+	response := performJSONRequest(
+		engine,
+		http.MethodPost,
+		"/api/v1/tags/update",
+		`{
+			"urls": [
+				"s3://wildlens-media/media/originals/koala.jpg"
+			],
+			"tags": [
+				" reviewed "
+			],
+			"operation": 1
+		}`,
+	)
+
+	if response.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", response.Code)
+	}
+
+	var payload model.TagUpdateResponse
+
+	if err := json.Unmarshal(response.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+
+	if payload.UpdatedCount != 1 {
+		t.Fatalf(
+			"expected updated_count 1, got %d",
+			payload.UpdatedCount,
+		)
+	}
+
+	if len(payload.Files) != 1 {
+		t.Fatalf("expected 1 file, got %d", len(payload.Files))
+	}
+
+	if payload.Files[0].TagCounts["reviewed"] != 1 {
+		t.Fatalf(
+			"expected reviewed count 1, got %d",
+			payload.Files[0].TagCounts["reviewed"],
+		)
+	}
+}
+
+func TestUpdateTagsRemovesTagUsingThumbnailURL(t *testing.T) {
+	engine := newTestEngine()
+
+	response := performJSONRequest(
+		engine,
+		http.MethodPost,
+		"/api/v1/tags/update",
+		`{
+			"urls": [
+				"s3://wildlens-media/media/thumbnails/koala.jpg"
+			],
+			"tags": [
+				"magpie"
+			],
+			"operation": 0
+		}`,
+	)
+
+	if response.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", response.Code)
+	}
+
+	var payload model.TagUpdateResponse
+
+	if err := json.Unmarshal(response.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+
+	if payload.UpdatedCount != 1 {
+		t.Fatalf(
+			"expected updated_count 1, got %d",
+			payload.UpdatedCount,
+		)
+	}
+
+	if _, exists := payload.Files[0].TagCounts["magpie"]; exists {
+		t.Fatal("expected magpie tag count to be removed")
+	}
+}
+
+func TestUpdateTagsRejectsInvalidOperation(t *testing.T) {
+	engine := newTestEngine()
+
+	response := performJSONRequest(
+		engine,
+		http.MethodPost,
+		"/api/v1/tags/update",
+		`{
+			"urls": [
+				"s3://wildlens-media/media/originals/koala.jpg"
+			],
+			"tags": [
+				"reviewed"
+			],
+			"operation": 99
+		}`,
+	)
+
+	if response.Code != http.StatusBadRequest {
+		t.Fatalf("expected status 400, got %d", response.Code)
+	}
+}
+
+func TestUpdateTagsRejectsMissingOperation(t *testing.T) {
+	engine := newTestEngine()
+
+	response := performJSONRequest(
+		engine,
+		http.MethodPost,
+		"/api/v1/tags/update",
+		`{
+			"urls": [
+				"s3://wildlens-media/media/originals/koala.jpg"
+			],
+			"tags": [
+				"reviewed"
+			]
+		}`,
+	)
+
+	if response.Code != http.StatusBadRequest {
+		t.Fatalf("expected status 400, got %d", response.Code)
+	}
+}
+
+func TestUpdateTagsRejectsEmptyURLs(t *testing.T) {
+	engine := newTestEngine()
+
+	response := performJSONRequest(
+		engine,
+		http.MethodPost,
+		"/api/v1/tags/update",
+		`{
+			"urls": [],
+			"tags": [
+				"reviewed"
+			],
+			"operation": 1
+		}`,
+	)
+
+	if response.Code != http.StatusBadRequest {
+		t.Fatalf("expected status 400, got %d", response.Code)
+	}
+}
+
+func TestUpdateTagsRejectsWhitespaceOnlyTags(t *testing.T) {
+	engine := newTestEngine()
+
+	response := performJSONRequest(
+		engine,
+		http.MethodPost,
+		"/api/v1/tags/update",
+		`{
+			"urls": [
+				"s3://wildlens-media/media/originals/koala.jpg"
+			],
+			"tags": [
+				"   "
+			],
+			"operation": 1
+		}`,
+	)
+
+	if response.Code != http.StatusBadRequest {
+		t.Fatalf("expected status 400, got %d", response.Code)
+	}
+}
