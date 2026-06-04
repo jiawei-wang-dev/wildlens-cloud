@@ -233,3 +233,18 @@ venv/
 *.pem
 *.key
 credentials.json
+
+# Lambda deployment dependencies
+auth/bin/
+auth/certifi/
+auth/certifi-*/
+auth/charset_normalizer/
+auth/charset_normalizer-*/
+auth/idna/
+auth/idna-*/
+auth/requests/
+auth/requests-*/
+auth/urllib3/
+auth/urllib3-*/
+auth/*.dist-info/
+*.zip
