@@ -78,7 +78,7 @@ def test_infer_image_with_download_url_generates_thumbnail(monkeypatch, tmp_path
             "size_bytes": 20,
         }
 
-    monkeypatch.setattr(media_app, "download_media", fake_download_media)
+    monkeypatch.setattr(media_app.media_downloader, "download_media", fake_download_media)
     monkeypatch.setattr(media_app, "generate_thumbnail", fake_generate_thumbnail)
 
     response = client.post(
@@ -104,7 +104,7 @@ def test_infer_image_download_failure_returns_failed_response(monkeypatch):
     def fake_download_media(download_url, target_dir, filename):
         raise RuntimeError("download failed")
 
-    monkeypatch.setattr(media_app, "download_media", fake_download_media)
+    monkeypatch.setattr(media_app.media_downloader, "download_media", fake_download_media)
 
     response = client.post(
         "/infer",
@@ -127,7 +127,7 @@ def test_infer_without_download_url_keeps_placeholder_response(monkeypatch):
     def fail_if_called(download_url, target_dir, filename):
         raise AssertionError("download_media should not be called without download_url")
 
-    monkeypatch.setattr(media_app, "download_media", fail_if_called)
+    monkeypatch.setattr(media_app.media_downloader, "download_media", fail_if_called)
 
     response = client.post("/infer", json=make_infer_payload(download_url=None))
 
@@ -148,6 +148,159 @@ def test_infer_returns_ready_for_supported_video_placeholder():
             object_path=f"incoming/fake-user-id/{VALID_CHECKSUM}/koala.mp4",
             file_type="video",
             mime_type="video/mp4",
+        ),
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == "ready"
+    assert body["tag_counts"] == {"koala": 1}
+    assert body["thumbnail_object_path"] is None
+
+
+def test_infer_video_with_download_url_calls_downloader_and_extracts_frames(monkeypatch, tmp_path):
+    client = TestClient(media_app.app)
+    calls = {}
+    downloaded_path = tmp_path / "koala.mp4"
+    downloaded_path.write_bytes(b"fake video bytes")
+    frame_paths = [
+        str(tmp_path / "frames" / "frame_0000.jpg"),
+        str(tmp_path / "frames" / "frame_0001.jpg"),
+        str(tmp_path / "frames" / "frame_0002.jpg"),
+    ]
+
+    def fake_download_media(download_url, target_dir, filename):
+        calls["download"] = {
+            "download_url": download_url,
+            "target_dir": target_dir,
+            "filename": filename,
+        }
+        return downloaded_path
+
+    def fake_extract_frames_1fps(video_path, output_dir):
+        calls["frames"] = {
+            "video_path": video_path,
+            "output_dir": output_dir,
+        }
+        return frame_paths
+
+    detections_by_frame = {
+        frame_paths[0]: [{"label": "koala", "count": 1, "confidence": 0.9}],
+        frame_paths[1]: [
+            {"label": "koala", "count": 3, "confidence": 0.8},
+            {"label": "kangaroo", "count": 1, "confidence": 0.7},
+        ],
+        frame_paths[2]: [{"label": "kangaroo", "count": 2, "confidence": 0.6}],
+    }
+
+    def fake_detect_image(image_path):
+        return detections_by_frame[image_path]
+
+    monkeypatch.setattr(media_app.media_downloader, "download_media", fake_download_media)
+    monkeypatch.setattr(media_app, "extract_frames_1fps", fake_extract_frames_1fps)
+    monkeypatch.setattr(media_app, "detect_image", fake_detect_image)
+
+    response = client.post(
+        "/infer",
+        json=make_infer_payload(
+            filename="koala.mp4",
+            object_path=f"incoming/fake-user-id/{VALID_CHECKSUM}/koala.mp4",
+            file_type="video",
+            mime_type="video/mp4",
+            download_url="https://example.test/video-download",
+        ),
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == "ready"
+    assert body["tags"] == ["kangaroo", "koala"]
+    assert body["tag_counts"] == {"koala": 3, "kangaroo": 2}
+    assert body["primary_species"] == "koala"
+    assert body["thumbnail_object_path"] is None
+    assert calls["download"]["download_url"] == "https://example.test/video-download"
+    assert calls["download"]["filename"] == "koala.mp4"
+    assert calls["frames"]["video_path"] == str(downloaded_path)
+    assert calls["frames"]["output_dir"].endswith("frames")
+
+
+def test_infer_video_download_failure_returns_failed_response(monkeypatch):
+    client = TestClient(media_app.app)
+
+    def fake_download_media(download_url, target_dir, filename):
+        raise RuntimeError("video download failed")
+
+    monkeypatch.setattr(media_app.media_downloader, "download_media", fake_download_media)
+
+    response = client.post(
+        "/infer",
+        json=make_infer_payload(
+            filename="koala.mp4",
+            object_path=f"incoming/fake-user-id/{VALID_CHECKSUM}/koala.mp4",
+            file_type="video",
+            mime_type="video/mp4",
+            download_url="https://example.test/video-download",
+        ),
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["file_id"] == VALID_CHECKSUM
+    assert body["status"] == "failed"
+    assert body["tags"] == []
+    assert body["tag_counts"] == {}
+    assert body["primary_species"] is None
+    assert body["thumbnail_object_path"] is None
+    assert "video download failed" in body["error"]
+
+
+def test_infer_video_frame_extraction_failure_returns_failed_response(monkeypatch, tmp_path):
+    client = TestClient(media_app.app)
+    downloaded_path = tmp_path / "koala.mp4"
+    downloaded_path.write_bytes(b"fake video bytes")
+
+    def fake_download_media(download_url, target_dir, filename):
+        return downloaded_path
+
+    def fake_extract_frames_1fps(video_path, output_dir):
+        raise RuntimeError("frame extraction failed")
+
+    monkeypatch.setattr(media_app.media_downloader, "download_media", fake_download_media)
+    monkeypatch.setattr(media_app, "extract_frames_1fps", fake_extract_frames_1fps)
+
+    response = client.post(
+        "/infer",
+        json=make_infer_payload(
+            filename="koala.mp4",
+            object_path=f"incoming/fake-user-id/{VALID_CHECKSUM}/koala.mp4",
+            file_type="video",
+            mime_type="video/mp4",
+            download_url="https://example.test/video-download",
+        ),
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == "failed"
+    assert "frame extraction failed" in body["error"]
+
+
+def test_infer_video_without_download_url_keeps_placeholder_response(monkeypatch):
+    client = TestClient(media_app.app)
+
+    def fail_if_called(download_url, target_dir, filename):
+        raise AssertionError("download_media should not be called without download_url")
+
+    monkeypatch.setattr(media_app.media_downloader, "download_media", fail_if_called)
+
+    response = client.post(
+        "/infer",
+        json=make_infer_payload(
+            filename="koala.mp4",
+            object_path=f"incoming/fake-user-id/{VALID_CHECKSUM}/koala.mp4",
+            file_type="video",
+            mime_type="video/mp4",
+            download_url=None,
         ),
     )
 
