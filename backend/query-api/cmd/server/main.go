@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"log"
+	"os"
 
 	appconfig "github.com/jiawei-wang-dev/wildlens-cloud/backend/query-api/internal/config"
 	"github.com/jiawei-wang-dev/wildlens-cloud/backend/query-api/internal/handler"
@@ -41,13 +42,19 @@ func main() {
 	queryHandler := handler.NewQueryHandler(queryService)
 
 	engine := router.New(queryHandler)
+	port := os.Getenv("PORT")
+
+	if port == "" {
+		port = "8080"
+	}
 
 	log.Printf(
-		"WildLens query API is running at http://localhost:8080 using %s repository",
+		"WildLens query API is running at http://localhost:%s using %s repository",
+		port,
 		cfg.Repository,
 	)
 
-	if err := engine.Run(":8080"); err != nil {
+	if err := engine.Run(":" + port); err != nil {
 		log.Fatal(err)
 	}
 }
