@@ -1,0 +1,60 @@
+package main
+
+import (
+	"context"
+	"log"
+	"os"
+
+	appconfig "github.com/jiawei-wang-dev/wildlens-cloud/backend/query-api/internal/config"
+	"github.com/jiawei-wang-dev/wildlens-cloud/backend/query-api/internal/handler"
+	"github.com/jiawei-wang-dev/wildlens-cloud/backend/query-api/internal/router"
+	"github.com/jiawei-wang-dev/wildlens-cloud/backend/query-api/internal/service"
+)
+
+func main() {
+	ctx := context.Background()
+
+	cfg, err := appconfig.Load()
+	if err != nil {
+		log.Fatalf("load application configuration: %v", err)
+	}
+
+	repo, err := buildMediaRepository(ctx, cfg)
+	if err != nil {
+		log.Fatalf("create media repository: %v", err)
+	}
+
+	urlSigner, err := buildMediaURLSigner(ctx, cfg)
+	if err != nil {
+		log.Fatalf("create media URL signer: %v", err)
+	}
+
+	objectDeleter, err := buildMediaObjectDeleter(ctx, cfg)
+	if err != nil {
+		log.Fatalf("create media object deleter: %v", err)
+	}
+
+	queryService := service.NewQueryServiceWithDependencies(
+		repo,
+		urlSigner,
+		objectDeleter,
+	)
+	queryHandler := handler.NewQueryHandler(queryService)
+
+	engine := router.New(queryHandler)
+	port := os.Getenv("PORT")
+
+	if port == "" {
+		port = "8080"
+	}
+
+	log.Printf(
+		"WildLens query API is running at http://localhost:%s using %s repository",
+		port,
+		cfg.Repository,
+	)
+
+	if err := engine.Run(":" + port); err != nil {
+		log.Fatal(err)
+	}
+}
