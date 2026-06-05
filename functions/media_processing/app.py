@@ -6,6 +6,7 @@ from typing import Dict, Literal, Optional
 
 from fastapi import FastAPI
 from pydantic import BaseModel, model_validator
+import requests
 
 try:
     from . import media_downloader
@@ -65,6 +66,24 @@ class InferenceResponse(BaseModel):
 app = FastAPI(title="WildLens Media Inference Service", version="0.1.0")
 
 
+class ThumbnailUploadError(RuntimeError):
+    """Raised when a coordinator-provided thumbnail URL rejects the upload."""
+
+
+def _upload_thumbnail(thumbnail_path: Path, upload_url: str) -> None:
+    thumbnail_bytes = thumbnail_path.read_bytes()
+    response = requests.put(
+        upload_url,
+        data=thumbnail_bytes,
+        headers={"Content-Type": "image/jpeg"},
+        timeout=15,
+    )
+    if not 200 <= response.status_code < 300:
+        raise ThumbnailUploadError(
+            f"thumbnail upload failed with HTTP status {response.status_code}"
+        )
+
+
 @app.get("/health")
 def health_check() -> dict[str, str]:
     return {"status": "ok"}
@@ -86,6 +105,8 @@ def infer_media(request: InferenceRequest) -> InferenceResponse:
                 )
                 local_thumbnail_path = work_dir / f"{request.checksum_sha256}-thumbnail.jpg"
                 generate_thumbnail(str(local_media_path), str(local_thumbnail_path))
+                if request.thumbnail_upload_url:
+                    _upload_thumbnail(local_thumbnail_path, request.thumbnail_upload_url)
                 raw_detections = detect_image(str(local_media_path))
                 tag_counts = aggregate_tag_counts(raw_detections)
                 thumbnail_object_path = build_thumbnail_object_path(request.checksum_sha256)
