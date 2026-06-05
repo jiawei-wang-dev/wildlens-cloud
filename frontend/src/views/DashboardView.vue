@@ -45,21 +45,81 @@
               <p class="status-tip-text">{{ statusMessage }}</p>
             </div>
           </el-card>
+          <el-card class="box-card governance-card" style="margin-top: 20px;">
+            <template #header>
+              <div class="card-header"><span>Data Governance & Batch Management</span></div>
+            </template>
+            <p class="placeholder-text">Administrative batch destructive actions and classification controls will be implemented here.</p>
+          </el-card>
         </el-col>
 
         <el-col :span="16">
           <el-card class="box-card search-card">
             <template #header>
-              <div class="card-header"><span>Logical Search & Observation Grid (Step 2)</span></div>
+              <div class="card-header"><span>Logical Search & Observation Grid</span></div>
             </template>
-            <p class="placeholder-text">Analytical queries and real-time visualization layer will be implemented here.</p>
-          </el-card>
 
-          <el-card class="box-card governance-card" style="margin-top: 20px;">
-            <template #header>
-              <div class="card-header"><span>Data Governance & Batch Management (Step 3)</span></div>
-            </template>
-            <p class="placeholder-text">Administrative batch destructive actions and classification controls will be implemented here.</p>
+            <el-form :inline="true" :model="searchQuery" size="default" style="margin-bottom: -10px;">
+              <el-form-item label="Species">
+                <el-input v-model="searchQuery.species" placeholder="e.g., Alectura_lathami" clearable />
+              </el-form-item>
+              <el-form-item label="Tag">
+                <el-input v-model="searchQuery.tag" placeholder="Filter by custom tag" clearable />
+              </el-form-item>
+              <el-form-item>
+                <el-button type="primary" @click="handleSearch">Search</el-button>
+                <el-button @click="resetSearch">Reset</el-button>
+              </el-form-item>
+            </el-form>
+
+            <el-divider style="margin: 15px 0;" />
+            
+            <el-table :data="observationList" v-loading="isTableLoading" style="width: 100%" border max-height="500">
+              <el-table-column label="Thumbnail" width="120" align="center">
+                <template #default="scope">
+                  <el-image 
+                    style="width: 50px; height: 50px; border-radius: 4px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);"
+                    :src="scope.row.thumbnail_display_url" 
+                    :preview-src-list="[scope.row.file_url]"
+                    preview-teleported
+                    fit="cover"
+                  >
+                    <template #error>
+                      <div style="display: flex; justify-content: center; align-items: center; width: 100%; height: 100%; background: #f5f7fa; color: #909399; font-size: 12px;">
+                        No Thumb
+                      </div>
+                    </template>
+                  </el-image>
+                </template>
+              </el-table-column>
+              <el-table-column prop="primary_species" label="Inferred Species" width="240">
+                <template #default="scope">
+                  <el-tag :type="scope.row.primary_species === 'Alectura_lathami' ? 'success' : 'warning'" effect="dark">
+                    {{ scope.row.primary_species || 'Analyzing...' }}
+                  </el-tag>
+                </template>
+              </el-table-column>
+              <el-table-column label="Metadata Tags">
+                <template #default="scope">
+                  <el-tag v-for="tag in scope.row.tags" :key="tag" size="small" style="margin-right: 5px;" effect="plain">
+                    {{ tag }}
+                  </el-tag>
+                </template>
+              </el-table-column>
+              <el-table-column prop="created_at" label="Ingestion Date" width="160" />
+              <el-table-column label="Actions" width="120" align="center">
+                <template #default="scope">
+                  <el-link 
+                    :href="scope.row.file_download_url" 
+                    target="_blank" 
+                    type="primary" 
+                    underline="never"
+                  >
+                    <el-button type="primary" size="small" link>Download</el-button>
+                  </el-link>
+                </template>
+              </el-table-column>
+            </el-table>
           </el-card>
         </el-col>
       </el-row>
@@ -68,7 +128,7 @@
 </template>
 
 <script setup>
-import { ref } from 'vue'
+import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { UploadFilled } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
@@ -80,8 +140,98 @@ const uploadPercentage = ref(0)
 const uploadStatus = ref('')
 const statusMessage = ref('')
 
-
+// Ingestion Core Configuration
 const API_BASE_URL = 'https://aetsjr34k4.execute-api.us-east-1.amazonaws.com'
+
+
+// Observation Grid Workspace Module
+const isTableLoading = ref(false)
+const observationList = ref([])
+
+const QUERY_BASE_URL = 'https://aetsjr34k4.execute-api.us-east-1.amazonaws.com'
+
+const searchQuery = ref({
+  species: '',
+  tag: ''
+})
+
+// Pagination tokens
+const nextToken = ref('')
+const hasMore = ref(false)
+
+/**
+ * Synchronizes layout display registry with backend observation store entries
+ */
+const fetchObservations = async () => {
+  isTableLoading.value = true
+  try {
+    const token = localStorage.getItem('id_token')
+    
+    // Assemble query parameters based on active component state filters
+    let queryParams = []
+    if (searchQuery.value.species.trim()) {
+      queryParams.push(`species=${encodeURIComponent(searchQuery.value.species.trim())}`)
+    }
+    if (searchQuery.value.tag.trim()) {
+      queryParams.push(`tag=${encodeURIComponent(searchQuery.value.tag.trim())}`)
+    }
+    
+    // Enforce API default pagination limit constraint
+    queryParams.push('limit=10')
+
+    if(nextToken.value) {
+      queryParams.push(`next_token=${encodeURIComponent(nextToken.value)}`)
+    }
+    
+    const queryString = queryParams.length ? `?${queryParams.join('&')}` : ''
+    const finalUrl = `${QUERY_BASE_URL}/api/v1/observations${queryString}`
+    
+    console.log("Generated Target Query URL:", finalUrl)
+
+    // Fetching real-time records
+    const response = await axios.get(finalUrl, {
+      headers: { 'Authorization': `Bearer ${token}` }
+    })
+
+    if(response.data) {
+      observationList.value = response.data.items || []
+      nextToken.value = response.data.next_token || ''
+      hasMore.value = response.data.has_more || false
+    }
+  
+  } catch (error) {
+    console.error("Failed to sync observation ledger:", error)
+    ElMessage.error("Query dispatch failed. Verify API container status.")
+    observationList.value = []
+    nextToken.value = ''
+    hasMore.value = false
+  } finally {
+    isTableLoading.value = false
+  }
+}
+
+/**
+ * Triggers the unified multi-conditional GET filter workflow
+ */
+const handleSearch = () => {
+  nextToken.value = ''
+  fetchObservations()
+}
+
+/**
+ * Flushes active filter matrices and restores default observation stream
+ */
+const resetSearch = () => {
+  searchQuery.value = { species: '', tag: '' }
+  nextToken.value = ''
+  fetchObservations()
+}
+
+
+// Fetch data when layout component mounts in viewport
+onMounted(() => {
+  fetchObservations()
+})
 
 /**
  * Generates a deterministic SHA-256 hash string from a file buffer.
