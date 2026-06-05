@@ -77,6 +77,18 @@ def call_gcp_infer(bucket, key, file_id, file_type, presigned_url=None):
     else:
         mime_type = 'image/jpeg'
     
+    # Generate thumbnail upload URL
+    thumbnail_object_path = f"media/thumbnails/{file_id}.jpg"
+    thumbnail_upload_url = s3_client.generate_presigned_url(
+        'put_object',
+        Params={
+            'Bucket': bucket,
+            'Key': thumbnail_object_path,
+            'ContentType': 'image/jpeg'
+        },
+        ExpiresIn=300
+    )
+    
     payload = {
         "file_id": file_id,
         "bucket": bucket,
@@ -85,14 +97,15 @@ def call_gcp_infer(bucket, key, file_id, file_type, presigned_url=None):
         "file_type": file_type,
         "mime_type": mime_type,
         "checksum_sha256": file_id,
-        "download_url": presigned_url
+        "download_url": presigned_url,
+        "thumbnail_upload_url": thumbnail_upload_url
     }
     
     headers = {
         "Content-Type": "application/json"
     }
     
-    print(f"Sending to GCP: {payload}")
+    print(f"Sending to GCP: payload with thumbnail_upload_url")
     
     response = requests.post(
         GCP_INFER_URL,
