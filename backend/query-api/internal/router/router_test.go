@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/gin-gonic/gin"
@@ -135,6 +136,68 @@ func TestHealth(t *testing.T) {
 	if payload["status"] != "ok" {
 		t.Fatalf("expected status ok, got %q", payload["status"])
 	}
+}
+
+func TestCORSPreflightAllowsObservationList(t *testing.T) {
+	engine := newTestEngine()
+
+	request := httptest.NewRequest(
+		http.MethodOptions,
+		"/api/v1/observations",
+		nil,
+	)
+	request.Header.Set("Origin", "http://localhost:3000")
+	request.Header.Set("Access-Control-Request-Method", "GET")
+	request.Header.Set(
+		"Access-Control-Request-Headers",
+		"Authorization,Content-Type",
+	)
+	response := httptest.NewRecorder()
+
+	engine.ServeHTTP(response, request)
+
+	if response.Code != http.StatusNoContent &&
+		response.Code != http.StatusOK {
+		t.Fatalf("expected status 204 or 200, got %d", response.Code)
+	}
+
+	if response.Header().Get("Access-Control-Allow-Origin") !=
+		"http://localhost:3000" {
+		t.Fatalf(
+			"unexpected allow origin: %s",
+			response.Header().Get("Access-Control-Allow-Origin"),
+		)
+	}
+
+	if !headerContains(
+		response.Header().Get("Access-Control-Allow-Methods"),
+		"GET",
+	) {
+		t.Fatalf(
+			"allow methods does not contain GET: %s",
+			response.Header().Get("Access-Control-Allow-Methods"),
+		)
+	}
+
+	if !headerContains(
+		response.Header().Get("Access-Control-Allow-Headers"),
+		"Authorization",
+	) {
+		t.Fatalf(
+			"allow headers does not contain Authorization: %s",
+			response.Header().Get("Access-Control-Allow-Headers"),
+		)
+	}
+}
+
+func headerContains(headerValue string, expected string) bool {
+	for _, part := range strings.Split(headerValue, ",") {
+		if strings.EqualFold(strings.TrimSpace(part), expected) {
+			return true
+		}
+	}
+
+	return false
 }
 
 func TestFindBySpecies(t *testing.T) {

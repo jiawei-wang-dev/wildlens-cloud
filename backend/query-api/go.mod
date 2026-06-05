@@ -8,6 +8,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/feature/dynamodb/attributevalue v1.20.44
 	github.com/aws/aws-sdk-go-v2/service/dynamodb v1.57.8
 	github.com/aws/aws-sdk-go-v2/service/s3 v1.103.1
+	github.com/gin-contrib/cors v1.7.7
 	github.com/gin-gonic/gin v1.12.0
 )
 
@@ -52,10 +53,10 @@ require (
 	github.com/twitchyliquid64/golang-asm v0.15.1 // indirect
 	github.com/ugorji/go/codec v1.3.1 // indirect
 	go.mongodb.org/mongo-driver/v2 v2.5.0 // indirect
-	golang.org/x/arch v0.22.0 // indirect
+	golang.org/x/arch v0.23.0 // indirect
 	golang.org/x/crypto v0.48.0 // indirect
 	golang.org/x/net v0.51.0 // indirect
 	golang.org/x/sys v0.41.0 // indirect
-	golang.org/x/text v0.34.0 // indirect
+	golang.org/x/text v0.35.0 // indirect
 	google.golang.org/protobuf v1.36.10 // indirect
 )
