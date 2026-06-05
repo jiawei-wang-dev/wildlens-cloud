@@ -49,6 +49,21 @@ def lambda_handler(event, context):
                 'body': json.dumps({'error': 'filename and checksum_sha256 are required'})
             }
         
+        # Check for duplicate
+        dynamodb = boto3.resource('dynamodb', region_name='us-east-1')
+        table = dynamodb.Table('fit5225-wildlife-media-metadata')
+        response = table.get_item(Key={'file_id': checksum})
+        if 'Item' in response:
+            return {
+                'statusCode': 200,
+                'headers': {'Access-Control-Allow-Origin': '*'},
+                'body': json.dumps({
+                    'duplicate': True,
+                    'file_id': checksum,
+                    'message': 'File already exists'
+                })
+            }
+        
         # Build object path as per B's contract
         object_path = f"incoming/{owner_id}/{checksum}/{filename}"
         
