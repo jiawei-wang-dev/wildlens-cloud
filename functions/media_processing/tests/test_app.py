@@ -51,7 +51,7 @@ def test_infer_accepts_valid_image_request_and_returns_ready_result():
     assert body["thumbnail_object_path"] == f"media/thumbnails/{VALID_CHECKSUM}.jpg"
 
 
-def test_infer_image_with_download_url_generates_thumbnail(monkeypatch, tmp_path):
+def test_infer_image_with_download_url_uploads_thumbnail(monkeypatch, tmp_path):
     client = TestClient(media_app.app)
     calls = {}
     downloaded_path = tmp_path / "koala.jpg"
@@ -81,6 +81,17 @@ def test_infer_image_with_download_url_generates_thumbnail(monkeypatch, tmp_path
     monkeypatch.setattr(media_app.media_downloader, "download_media", fake_download_media)
     monkeypatch.setattr(media_app, "generate_thumbnail", fake_generate_thumbnail)
 
+    def fake_put(upload_url, data, headers, timeout):
+        calls["upload"] = {
+            "upload_url": upload_url,
+            "data": data,
+            "headers": headers,
+            "timeout": timeout,
+        }
+        return type("Response", (), {"status_code": 200})()
+
+    monkeypatch.setattr(media_app.requests, "put", fake_put)
+
     response = client.post(
         "/infer",
         json=make_infer_payload(download_url="https://example.test/download"),
@@ -96,6 +107,51 @@ def test_infer_image_with_download_url_generates_thumbnail(monkeypatch, tmp_path
     assert calls["download"]["filename"] == "koala.jpg"
     assert calls["thumbnail"]["input_path"] == str(downloaded_path)
     assert calls["thumbnail"]["output_path"].endswith(f"{VALID_CHECKSUM}-thumbnail.jpg")
+    assert calls["upload"] == {
+        "upload_url": "https://example.test/thumbnail-upload",
+        "data": b"fake thumbnail bytes",
+        "headers": {"Content-Type": "image/jpeg"},
+        "timeout": 15,
+    }
+
+
+def test_infer_image_thumbnail_upload_failure_returns_failed_response(monkeypatch, tmp_path):
+    client = TestClient(media_app.app)
+    downloaded_path = tmp_path / "koala.jpg"
+    downloaded_path.write_bytes(b"fake image bytes")
+
+    def fake_download_media(download_url, target_dir, filename):
+        return downloaded_path
+
+    def fake_generate_thumbnail(input_path, output_path):
+        Path(output_path).write_bytes(b"fake thumbnail bytes")
+        return {
+            "width": 300,
+            "height": 200,
+            "output_path": output_path,
+            "size_bytes": 20,
+        }
+
+    def fake_put(upload_url, data, headers, timeout):
+        return type("Response", (), {"status_code": 403})()
+
+    monkeypatch.setattr(media_app.media_downloader, "download_media", fake_download_media)
+    monkeypatch.setattr(media_app, "generate_thumbnail", fake_generate_thumbnail)
+    monkeypatch.setattr(media_app.requests, "put", fake_put)
+
+    response = client.post(
+        "/infer",
+        json=make_infer_payload(download_url="https://example.test/download"),
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == "failed"
+    assert body["tags"] == []
+    assert body["tag_counts"] == {}
+    assert body["primary_species"] is None
+    assert body["thumbnail_object_path"] is None
+    assert "thumbnail upload failed with HTTP status 403" in body["error"]
 
 
 def test_infer_image_download_failure_returns_failed_response(monkeypatch):
@@ -199,6 +255,11 @@ def test_infer_video_with_download_url_calls_downloader_and_extracts_frames(monk
     monkeypatch.setattr(media_app.media_downloader, "download_media", fake_download_media)
     monkeypatch.setattr(media_app, "extract_frames_1fps", fake_extract_frames_1fps)
     monkeypatch.setattr(media_app, "detect_image", fake_detect_image)
+
+    def fail_if_upload_called(upload_url, data, headers, timeout):
+        raise AssertionError("thumbnail upload should not be called for videos")
+
+    monkeypatch.setattr(media_app.requests, "put", fail_if_upload_called)
 
     response = client.post(
         "/infer",

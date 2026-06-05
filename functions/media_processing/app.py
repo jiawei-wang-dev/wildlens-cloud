@@ -6,10 +6,11 @@ from typing import Dict, Literal, Optional
 
 from fastapi import FastAPI
 from pydantic import BaseModel, model_validator
+import requests
 
 try:
     from . import media_downloader
-    from .detector import MODEL_VERSION, detect_image
+    from .detector import detect_image, get_model_version
     from .image_processor import generate_thumbnail
     from .main import (
         aggregate_tag_counts,
@@ -21,7 +22,7 @@ try:
     from .video_processor import extract_frames_1fps
 except ImportError:
     import media_downloader
-    from detector import MODEL_VERSION, detect_image
+    from detector import detect_image, get_model_version
     from image_processor import generate_thumbnail
     from main import (
         aggregate_tag_counts,
@@ -65,6 +66,24 @@ class InferenceResponse(BaseModel):
 app = FastAPI(title="WildLens Media Inference Service", version="0.1.0")
 
 
+class ThumbnailUploadError(RuntimeError):
+    """Raised when a coordinator-provided thumbnail URL rejects the upload."""
+
+
+def _upload_thumbnail(thumbnail_path: Path, upload_url: str) -> None:
+    thumbnail_bytes = thumbnail_path.read_bytes()
+    response = requests.put(
+        upload_url,
+        data=thumbnail_bytes,
+        headers={"Content-Type": "image/jpeg"},
+        timeout=15,
+    )
+    if not 200 <= response.status_code < 300:
+        raise ThumbnailUploadError(
+            f"thumbnail upload failed with HTTP status {response.status_code}"
+        )
+
+
 @app.get("/health")
 def health_check() -> dict[str, str]:
     return {"status": "ok"}
@@ -86,6 +105,8 @@ def infer_media(request: InferenceRequest) -> InferenceResponse:
                 )
                 local_thumbnail_path = work_dir / f"{request.checksum_sha256}-thumbnail.jpg"
                 generate_thumbnail(str(local_media_path), str(local_thumbnail_path))
+                if request.thumbnail_upload_url:
+                    _upload_thumbnail(local_thumbnail_path, request.thumbnail_upload_url)
                 raw_detections = detect_image(str(local_media_path))
                 tag_counts = aggregate_tag_counts(raw_detections)
                 thumbnail_object_path = build_thumbnail_object_path(request.checksum_sha256)
@@ -95,7 +116,7 @@ def infer_media(request: InferenceRequest) -> InferenceResponse:
                 tags=[],
                 tag_counts={},
                 primary_species=None,
-                model_version=MODEL_VERSION,
+                model_version=get_model_version(),
                 status="failed",
                 thumbnail_object_path=None,
                 error=f"image processing failed: {exc}",
@@ -108,7 +129,7 @@ def infer_media(request: InferenceRequest) -> InferenceResponse:
             tags=sorted(tag_counts),
             tag_counts=tag_counts,
             primary_species=primary_species,
-            model_version=MODEL_VERSION,
+            model_version=get_model_version(),
             status="ready",
             thumbnail_object_path=thumbnail_object_path,
         )
@@ -134,7 +155,7 @@ def infer_media(request: InferenceRequest) -> InferenceResponse:
                 tags=[],
                 tag_counts={},
                 primary_species=None,
-                model_version=MODEL_VERSION,
+                model_version=get_model_version(),
                 status="failed",
                 thumbnail_object_path=None,
                 error=f"video processing failed: {exc}",
@@ -147,7 +168,7 @@ def infer_media(request: InferenceRequest) -> InferenceResponse:
             tags=sorted(tag_counts),
             tag_counts=tag_counts,
             primary_species=primary_species,
-            model_version=MODEL_VERSION,
+            model_version=get_model_version(),
             status="ready",
             thumbnail_object_path=None,
         )
@@ -170,7 +191,7 @@ def infer_media(request: InferenceRequest) -> InferenceResponse:
         tags=sorted(tag_counts),
         tag_counts=tag_counts,
         primary_species=primary_species,
-        model_version=MODEL_VERSION,
+        model_version=get_model_version(),
         status="ready",
         thumbnail_object_path=thumbnail_object_path,
     )

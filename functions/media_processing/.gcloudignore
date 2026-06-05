@@ -1,3 +1,7 @@
+.gcloudignore
+.git/
+.gitignore
+
 __pycache__/
 *.pyc
 .pytest_cache/
@@ -6,6 +10,10 @@ venv/
 .venv-model/
 .env
 
+model_artifacts/
+models/
+model/
+
 *.pt
 *.pth
 *.onnx
@@ -13,12 +21,6 @@ venv/
 *.pkl
 *.zip
 
-models/
-model/
-model_artifacts/
-
 cropped_images/
 mg_detections.json
 .DS_Store
-*.log
-*.tmp

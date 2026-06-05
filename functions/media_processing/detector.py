@@ -1,17 +1,67 @@
 from __future__ import annotations
 
+import logging
+import os
+from pathlib import Path
 from typing import List
 
-from models import Detection
+try:
+    from . import model_artifact_loader
+    from . import provided_model_detector
+    from schemas import Detection
+except ImportError:
+    import model_artifact_loader
+    import provided_model_detector
+    from schemas import Detection
 
 
-MODEL_VERSION = "fake-detector-v0"
+FAKE_MODEL_VERSION = "fake-detector-v0"
+PROVIDED_MODEL_VERSION = "provided-aussie-ecolense-v1"
+MODEL_VERSION = FAKE_MODEL_VERSION
+USE_PROVIDED_MODEL_ENV = "USE_PROVIDED_MODEL"
+
+logger = logging.getLogger(__name__)
 
 
 def detect_image(image_path: str) -> List[Detection]:
+    """Run the configured image detector, falling back to deterministic fake output."""
+    model_dir = _resolve_provided_model_dir()
+    if model_dir is not None:
+        try:
+            provided_model_detector.configure_model_dir(model_dir)
+            detections = provided_model_detector.detect_image_with_provided_model(Path(image_path))
+            _set_model_version(PROVIDED_MODEL_VERSION)
+            return detections
+        except Exception:
+            logger.warning("Provided model detector failed; falling back to fake detector.", exc_info=True)
+
+    _set_model_version(FAKE_MODEL_VERSION)
+    return _detect_image_with_fake_detector()
+
+
+def get_model_version() -> str:
+    """Return the detector version used by the latest successful detector route."""
+    return MODEL_VERSION
+
+
+def _resolve_provided_model_dir() -> Path | None:
+    if not _environment_flag_enabled(os.environ.get(USE_PROVIDED_MODEL_ENV)):
+        return None
+
+    return model_artifact_loader.ensure_model_artifacts_available()
+
+
+def _environment_flag_enabled(value: str | None) -> bool:
+    return value is not None and value.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _set_model_version(model_version: str) -> None:
+    global MODEL_VERSION
+    MODEL_VERSION = model_version
+
+
+def _detect_image_with_fake_detector() -> List[Detection]:
     """Return deterministic fake detections for local skeleton testing."""
-    # TODO: Load model configuration from MODEL_CONFIG_URI before real inference.
-    # TODO: Replace this fake detector with the agreed wildlife ML model.
     return [
         {
             "label": "koala",
