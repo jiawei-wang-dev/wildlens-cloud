@@ -234,16 +234,17 @@ venv/
 *.key
 credentials.json
 
-
-.env
-.env.*
-!.env.example
-
-
-# Frontend (Node.js / Vue 3) Custom Ignores
-node_modules/
-**/node_modules/
-/frontend/dist/
-/frontend/.cache/
-.DS_Store
-functions/media_processing/model_artifacts/
+# Lambda deployment dependencies
+auth/bin/
+auth/certifi/
+auth/certifi-*/
+auth/charset_normalizer/
+auth/charset_normalizer-*/
+auth/idna/
+auth/idna-*/
+auth/requests/
+auth/requests-*/
+auth/urllib3/
+auth/urllib3-*/
+auth/*.dist-info/
+*.zip
