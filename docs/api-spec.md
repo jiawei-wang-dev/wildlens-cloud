@@ -225,13 +225,18 @@ Authentication middleware may be bypassed during local development.
 ### Business Rules
 
 * The external API accepts `urls`, not `file_ids`.
+* The client submits the original file URLs returned by the observation list endpoint.
 * Leading and trailing URL spaces are removed.
 * Duplicate URLs are ignored.
 * Unknown URLs are ignored without error.
 * Empty URLs are ignored.
 * If no valid URL remains after cleanup, the API returns `400 Bad Request`.
-* The backend still deletes DynamoDB metadata internally by using the matched metadata record's `file_id`.
-* The current version deletes metadata only. S3 original files, videos, and thumbnails will be deleted in a later integration.
+* The backend resolves media metadata by URL.
+* The backend deletes original image or video objects from S3.
+* The backend deletes thumbnail objects when present.
+* DynamoDB metadata is removed only after S3 deletion succeeds.
+* S3 object deletion uses `bucket` and `object_path` fields from metadata, not URL parsing.
+* The backend deletes DynamoDB metadata internally by using the matched metadata record's `file_id`.
 
 ### Successful Response
 
@@ -291,9 +296,9 @@ Invalid cases include:
 
 ### Notes
 
-The first local implementation uses `MemoryRepository`.
+The local memory implementation uses a no-op object deleter and removes only the in-memory metadata record.
 
-DynamoDB metadata deletion uses `DeleteItem`. S3 object deletion is added separately.
+DynamoDB metadata deletion uses `DeleteItem` after S3 object deletion succeeds.
 
 ## Observation List
 

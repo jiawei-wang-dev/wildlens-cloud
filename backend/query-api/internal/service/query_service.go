@@ -26,8 +26,9 @@ var (
 
 // QueryService contains media query business logic.
 type QueryService struct {
-	repo      repository.MediaRepository
-	urlSigner storage.MediaURLSigner
+	repo          repository.MediaRepository
+	urlSigner     storage.MediaURLSigner
+	objectDeleter storage.MediaObjectDeleter
 }
 
 // NewQueryService creates a query service with a local URL signer.
@@ -45,13 +46,31 @@ func NewQueryServiceWithURLSigner(
 	repo repository.MediaRepository,
 	urlSigner storage.MediaURLSigner,
 ) *QueryService {
+	return NewQueryServiceWithDependencies(
+		repo,
+		urlSigner,
+		storage.NewNoopObjectDeleter(),
+	)
+}
+
+// NewQueryServiceWithDependencies creates a query service with all dependencies.
+func NewQueryServiceWithDependencies(
+	repo repository.MediaRepository,
+	urlSigner storage.MediaURLSigner,
+	objectDeleter storage.MediaObjectDeleter,
+) *QueryService {
 	if urlSigner == nil {
 		urlSigner = storage.NewStaticURLSigner("")
 	}
 
+	if objectDeleter == nil {
+		objectDeleter = storage.NewNoopObjectDeleter()
+	}
+
 	return &QueryService{
-		repo:      repo,
-		urlSigner: urlSigner,
+		repo:          repo,
+		urlSigner:     urlSigner,
+		objectDeleter: objectDeleter,
 	}
 }
 
@@ -179,6 +198,14 @@ func (s *QueryService) DeleteFiles(
 
 	files, err := s.repo.FindByURLs(ctx, cleanURLs)
 	if err != nil {
+		return nil, err
+	}
+
+	if len(files) == 0 {
+		return []string{}, nil
+	}
+
+	if err := s.objectDeleter.DeleteMediaObjects(ctx, files); err != nil {
 		return nil, err
 	}
 

@@ -28,9 +28,15 @@ func main() {
 		log.Fatalf("create media URL signer: %v", err)
 	}
 
-	queryService := service.NewQueryServiceWithURLSigner(
+	objectDeleter, err := buildMediaObjectDeleter(ctx, cfg)
+	if err != nil {
+		log.Fatalf("create media object deleter: %v", err)
+	}
+
+	queryService := service.NewQueryServiceWithDependencies(
 		repo,
 		urlSigner,
+		objectDeleter,
 	)
 	queryHandler := handler.NewQueryHandler(queryService)
 
