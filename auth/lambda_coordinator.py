@@ -151,6 +151,11 @@ def lambda_handler(event, context):
         
         print(f"Processing file: s3://{bucket}/{key}")
         
+        # Skip thumbnail files to prevent recursive processing
+        if key.startswith('media/thumbnails/'):
+            print(f"Skipping thumbnail file: {key}")
+            continue
+
         # Generate file_id from actual file checksum
         response = s3_client.get_object(Bucket=bucket, Key=key)
         file_content = response['Body'].read()
