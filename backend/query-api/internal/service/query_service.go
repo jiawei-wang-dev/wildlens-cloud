@@ -212,6 +212,7 @@ func (s *QueryService) ListObservations(
 	limit int,
 	nextToken string,
 	species string,
+	tags []string,
 	fileType string,
 	status string,
 ) (repository.ObservationPage, error) {
@@ -226,6 +227,7 @@ func (s *QueryService) ListObservations(
 			Limit:     limit,
 			NextToken: strings.TrimSpace(nextToken),
 			Species:   strings.TrimSpace(species),
+			Tags:      cleanObservationTags(tags),
 			FileType:  strings.TrimSpace(fileType),
 			Status:    strings.TrimSpace(status),
 		},
@@ -271,4 +273,26 @@ func (s *QueryService) ListObservations(
 	}
 
 	return page, nil
+}
+
+func cleanObservationTags(tags []string) []string {
+	results := make([]string, 0, len(tags))
+	seen := make(map[string]struct{})
+
+	for _, tag := range tags {
+		tag = strings.ToLower(strings.TrimSpace(tag))
+
+		if tag == "" {
+			continue
+		}
+
+		if _, exists := seen[tag]; exists {
+			continue
+		}
+
+		seen[tag] = struct{}{}
+		results = append(results, tag)
+	}
+
+	return results
 }

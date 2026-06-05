@@ -32,10 +32,11 @@ func newTestEngine() *gin.Engine {
 			ThumbnailObjectPath: "media/thumbnails/koala.jpg",
 			FileURL:             "s3://wildlens-media/media/originals/koala.jpg",
 			ThumbnailURL:        "s3://wildlens-media/media/thumbnails/koala.jpg",
-			Tags:                []string{"koala", "magpie"},
+			Tags:                []string{"koala", "magpie", "wild"},
 			TagCounts: map[string]int{
 				"koala":  3,
 				"magpie": 1,
+				"wild":   1,
 			},
 			Status: "ready",
 		},
@@ -48,9 +49,10 @@ func newTestEngine() *gin.Engine {
 			Bucket:           "wildlens-media",
 			ObjectPath:       "media/originals/wombat.mp4",
 			FileURL:          "s3://wildlens-media/media/originals/wombat.mp4",
-			Tags:             []string{"wombat"},
+			Tags:             []string{"wombat", "wild"},
 			TagCounts: map[string]int{
 				"wombat": 2,
+				"wild":   1,
 			},
 			Status: "ready",
 		},
@@ -81,6 +83,35 @@ func performJSONRequest(
 	engine.ServeHTTP(response, request)
 
 	return response
+}
+
+func performObservationListRequest(
+	t *testing.T,
+	engine http.Handler,
+	path string,
+) model.ObservationListResponse {
+	t.Helper()
+
+	request := httptest.NewRequest(
+		http.MethodGet,
+		path,
+		nil,
+	)
+	response := httptest.NewRecorder()
+
+	engine.ServeHTTP(response, request)
+
+	if response.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", response.Code)
+	}
+
+	var payload model.ObservationListResponse
+
+	if err := json.Unmarshal(response.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+
+	return payload
 }
 
 func TestHealth(t *testing.T) {
@@ -796,6 +827,151 @@ func TestListObservationsFiltersBySpecies(t *testing.T) {
 			"unexpected file ID: %s",
 			payload.Items[0].FileID,
 		)
+	}
+}
+
+func TestListObservationsFiltersBySingleTag(t *testing.T) {
+	engine := newTestEngine()
+
+	payload := performObservationListRequest(
+		t,
+		engine,
+		"/api/v1/observations?tag=koala",
+	)
+
+	if len(payload.Items) != 1 {
+		t.Fatalf("expected 1 item, got %d", len(payload.Items))
+	}
+
+	if payload.Items[0].FileID != "checksum-image-001" {
+		t.Fatalf(
+			"unexpected file ID: %s",
+			payload.Items[0].FileID,
+		)
+	}
+}
+
+func TestListObservationsFiltersBySpeciesAndTag(t *testing.T) {
+	engine := newTestEngine()
+
+	payload := performObservationListRequest(
+		t,
+		engine,
+		"/api/v1/observations?species=koala&tag=magpie",
+	)
+
+	if len(payload.Items) != 1 {
+		t.Fatalf("expected 1 item, got %d", len(payload.Items))
+	}
+
+	if payload.Items[0].FileID != "checksum-image-001" {
+		t.Fatalf(
+			"unexpected file ID: %s",
+			payload.Items[0].FileID,
+		)
+	}
+}
+
+func TestListObservationsFiltersByMultipleTagsUsingAND(t *testing.T) {
+	engine := newTestEngine()
+
+	payload := performObservationListRequest(
+		t,
+		engine,
+		"/api/v1/observations?tag=koala&tag=magpie",
+	)
+
+	if len(payload.Items) != 1 {
+		t.Fatalf("expected 1 item, got %d", len(payload.Items))
+	}
+
+	if payload.Items[0].FileID != "checksum-image-001" {
+		t.Fatalf(
+			"unexpected file ID: %s",
+			payload.Items[0].FileID,
+		)
+	}
+}
+
+func TestListObservationsRequiresEveryTag(t *testing.T) {
+	engine := newTestEngine()
+
+	payload := performObservationListRequest(
+		t,
+		engine,
+		"/api/v1/observations?tag=koala&tag=missing",
+	)
+
+	if len(payload.Items) != 0 {
+		t.Fatalf("expected 0 items, got %d", len(payload.Items))
+	}
+}
+
+func TestListObservationsIgnoresEmptyTag(t *testing.T) {
+	engine := newTestEngine()
+
+	payload := performObservationListRequest(
+		t,
+		engine,
+		"/api/v1/observations?species=koala&tag=",
+	)
+
+	if len(payload.Items) != 1 {
+		t.Fatalf("expected 1 item, got %d", len(payload.Items))
+	}
+
+	if payload.Items[0].FileID != "checksum-image-001" {
+		t.Fatalf(
+			"unexpected file ID: %s",
+			payload.Items[0].FileID,
+		)
+	}
+}
+
+func TestListObservationsPaginatesAfterTagFilter(t *testing.T) {
+	engine := newTestEngine()
+
+	firstPayload := performObservationListRequest(
+		t,
+		engine,
+		"/api/v1/observations?tag=wild&limit=1",
+	)
+
+	if len(firstPayload.Items) != 1 {
+		t.Fatalf("expected 1 first-page item, got %d", len(firstPayload.Items))
+	}
+
+	if !firstPayload.HasMore {
+		t.Fatal("expected first page to have more results")
+	}
+
+	if firstPayload.NextToken == "" {
+		t.Fatal("expected non-empty next_token")
+	}
+
+	secondPayload := performObservationListRequest(
+		t,
+		engine,
+		"/api/v1/observations?tag=wild&limit=1&next_token="+
+			firstPayload.NextToken,
+	)
+
+	if len(secondPayload.Items) != 1 {
+		t.Fatalf(
+			"expected 1 second-page item, got %d",
+			len(secondPayload.Items),
+		)
+	}
+
+	if secondPayload.Items[0].FileID == firstPayload.Items[0].FileID {
+		t.Fatalf(
+			"expected a different second-page file ID, got %s",
+			secondPayload.Items[0].FileID,
+		)
+	}
+
+	if secondPayload.HasMore {
+		t.Fatal("expected second page to have no more results")
 	}
 }
 

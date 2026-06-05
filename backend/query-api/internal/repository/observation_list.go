@@ -26,6 +26,7 @@ type ObservationListOptions struct {
 	Limit     int
 	NextToken string
 	Species   string
+	Tags      []string
 	FileType  string
 	Status    string
 }
@@ -84,6 +85,7 @@ func filterObservations(
 	options ObservationListOptions,
 ) []model.MediaFile {
 	species := strings.ToLower(strings.TrimSpace(options.Species))
+	tags := normaliseTags(options.Tags)
 	fileType := strings.ToLower(strings.TrimSpace(options.FileType))
 	status := strings.ToLower(strings.TrimSpace(options.Status))
 
@@ -91,6 +93,10 @@ func filterObservations(
 
 	for _, file := range files {
 		if species != "" && file.TagCounts[species] < 1 {
+			continue
+		}
+
+		if !matchesRequiredObservationTags(file, tags) {
 			continue
 		}
 
@@ -108,6 +114,40 @@ func filterObservations(
 	}
 
 	return results
+}
+
+func matchesRequiredObservationTags(
+	file model.MediaFile,
+	requiredTags []string,
+) bool {
+	for _, tag := range requiredTags {
+		if hasObservationTag(file, tag) {
+			continue
+		}
+
+		return false
+	}
+
+	return true
+}
+
+func hasObservationTag(
+	file model.MediaFile,
+	tag string,
+) bool {
+	if file.TagCounts[tag] >= 1 {
+		return true
+	}
+
+	for _, existingTag := range file.Tags {
+		existingTag = strings.ToLower(strings.TrimSpace(existingTag))
+
+		if existingTag == tag {
+			return true
+		}
+	}
+
+	return false
 }
 
 func encodeNextToken(offset int) string {

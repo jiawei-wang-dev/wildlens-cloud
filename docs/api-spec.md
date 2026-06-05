@@ -312,6 +312,7 @@ GET /api/v1/observations
 | `limit`      | Integer | No       | Number of records returned per request. Default: `10`. Maximum: `50`. |
 | `next_token` | String  | No       | Opaque token returned by the previous request.                        |
 | `species`    | String  | No       | Filters files containing the species tag.                             |
+| `tag`        | String  | No       | Filters records containing the tag. Repeat the parameter to require multiple tags using AND logic. |
 | `file_type`  | String  | No       | Filters records by `image` or `video`.                                |
 | `status`     | String  | No       | Filters records by processing status, such as `ready`.                |
 
@@ -319,6 +320,10 @@ GET /api/v1/observations
 
 ```text
 GET /api/v1/observations?limit=10&species=koala&status=ready
+```
+
+```text
+GET /api/v1/observations?species=koala&tag=wild&tag=cute&limit=10
 ```
 
 ### Successful Response
@@ -352,8 +357,14 @@ GET /api/v1/observations?limit=10&species=koala&status=ready
 * The first request does not include `next_token`.
 * When another page exists, the backend returns a non-empty `next_token`.
 * The frontend must pass the returned token back unchanged.
+* The frontend should pass the same filters again when requesting the next page.
 * When there is no next page, `next_token` is an empty string and `has_more` is `false`.
 * The token is opaque. The frontend must not decode or modify it.
+
+### Filtering Rules
+
+* Multiple `tag` parameters use AND logic.
+* Empty `tag` values are ignored.
 
 ### Invalid Request
 

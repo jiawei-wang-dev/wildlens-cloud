@@ -204,6 +204,7 @@ func (h *QueryHandler) ListObservations(c *gin.Context) {
 		limit,
 		c.Query("next_token"),
 		c.Query("species"),
+		c.QueryArray("tag"),
 		c.Query("file_type"),
 		c.Query("status"),
 	)
