@@ -45,11 +45,31 @@
               <p class="status-tip-text">{{ statusMessage }}</p>
             </div>
           </el-card>
+          
           <el-card class="box-card governance-card" style="margin-top: 20px;">
             <template #header>
               <div class="card-header"><span>Data Governance & Batch Management</span></div>
             </template>
-            <p class="placeholder-text">Administrative batch destructive actions and classification controls will be implemented here.</p>
+            <div class="governance-section">
+              <h4 class="section-title">Batch Record Actions</h4>
+              <p class="section-desc">Selected: <strong>{{ selectedRows.length }}</strong> items</p>
+              <el-input v-model="bulkTagInput" placeholder="Type custom tag name..." size="default" style="margin-bottom: 12px;" clearable />
+              <div class="btn-group">
+                <el-button type="primary" @click="handleBulkTag(1)" :disabled="!selectedRows.length">Add Tag</el-button>
+                <el-button type="warning" @click="handleBulkTag(0)" :disabled="!selectedRows.length">Remove Tag</el-button>
+                <el-button type="danger" @click="handleBulkDelete" :disabled="!selectedRows.length">Delete Files</el-button>
+              </div>
+            </div>
+            <el-divider style="margin: 20px 0;" />
+            <div class="governance-section">
+              <h4 class="section-title">AWS SNS Wildlife Alerts</h4>
+              <el-input v-model="notificationForm.email" placeholder="your-email@example.com" size="default" style="margin-bottom: 10px;" />
+              <el-input v-model="notificationForm.tag" placeholder="Species tag to subscribe (e.g., dingo)" size="default" style="margin-bottom: 12px;" />
+              <div class="btn-group">
+                <el-button type="success" @click="handleSubscribe(1)">Subscribe</el-button>
+                <el-button type="info" plain @click="handleSubscribe(0)">Unsubscribe</el-button>
+              </div>
+            </div>
           </el-card>
         </el-col>
 
@@ -74,7 +94,8 @@
 
             <el-divider style="margin: 15px 0;" />
             
-            <el-table :data="observationList" v-loading="isTableLoading" style="width: 100%" border max-height="500">
+            <el-table :data="observationList" v-loading="isTableLoading" style="width: 100%" border max-height="500" @selection-change="handleSelectionChange">
+              <el-table-column type="selection" width="50" align="center" />
               <el-table-column label="Thumbnail" width="120" align="center">
                 <template #default="scope">
                   <el-image 
@@ -159,6 +180,13 @@ const searchQuery = ref({
 const nextToken = ref('')
 const hasMore = ref(false)
 
+const selectedRows = ref([])
+const bulkTagInput = ref('')
+const notificationForm = ref({
+  email: '',
+  tag: ''
+})
+
 /**
  * Synchronizes layout display registry with backend observation store entries
  */
@@ -232,6 +260,95 @@ const resetSearch = () => {
 onMounted(() => {
   fetchObservations()
 })
+
+const handleSelectionChange = (val) => {
+  selectedRows.value = val
+}
+
+const handleBulkTag = async (operationType) => {
+  if (!bulkTagInput.value.trim()) {
+    return ElMessage.warning('Please enter a valid tag name first.')
+  }
+  const token = localStorage.getItem('id_token')
+  const fileUrls = selectedRows.value.map(row => row.file_url)
+  const payload = {
+    urls: fileUrls,
+    tags: [bulkTagInput.value.trim()],
+    operation: operationType
+  }
+  try {
+    isTableLoading.value = true
+    await axios.post(`${QUERY_BASE_URL}/api/v1/tags/update`, payload, {
+      headers: { 'Authorization': `Bearer ${token}` }
+    })
+    ElMessage.success('Bulk tag operation successfully completed!')
+    bulkTagInput.value = ''
+    await fetchObservations()
+  } catch (error) {
+    console.error('Bulk tagging error:', error)
+    ElMessage.error('Failed to update tags. Verify gateway parameters.')
+  } finally {
+    isTableLoading.value = false
+  }
+}
+
+const handleBulkDelete = () => {
+  ElMessageBox.confirm(
+    `Are you sure you want to completely erase these ${selectedRows.value.length} records from both S3 buckets and DynamoDB tables? This action is destructive and permanent.`,
+    'Warning: Cloud Asset Destruction Request',
+    {
+      confirmButtonText: 'Confirm Purge',
+      cancelButtonText: 'Abort',
+      type: 'danger'
+    }
+  ).then(async () => {
+    const token = localStorage.getItem('id_token')
+    const fileUrls = selectedRows.value.map(row => row.file_url)
+    try {
+      isTableLoading.value = true
+      await axios.delete(`${QUERY_BASE_URL}/api/v1/files`, {
+        headers: { 'Authorization': `Bearer ${token}` },
+        data: {urls: fileUrls}
+      })
+      ElMessage.success('Target assets successfully removed from cloud registry.')
+      await fetchObservations()
+    } catch (error) {
+      console.error('Purge transaction error:', error)
+      ElMessage.error('Purge action aborted by remote gateway.')
+    } finally {
+      isTableLoading.value = false
+    }
+  }).catch(() => {
+    ElMessage.info('Purge operation cancelled.')
+  })
+}
+
+const handleSubscribe = async (actionType) => {
+  const { email, tag } = notificationForm.value
+  if (!email.trim() || !tag.trim()) {
+    return ElMessage.warning('Both Email destination and target Tag matching fields are mandatory.')
+  }
+  const token = localStorage.getItem('id_token')
+  const payload = {
+    email: email.trim(),
+    tag_name: tag.trim(),
+    action: actionType === 1 ? 'subscribe' : 'unsubscribe'
+  }
+  try {
+    await axios.post(`${API_BASE_URL}/notifications/subscribe`, payload, {
+      headers: { 'Authorization': `Bearer ${token}` }
+    })
+    if (actionType === 1) {
+      ElMessage.success('Subscription pipeline deployed! Verify confirmation link via AWS email receipt.')
+    } else {
+      ElMessage.success('Target alert endpoint unlinked successfully.')
+    }
+    notificationForm.value = { email: '', tag: '' }
+  } catch (error) {
+    console.error('SNS pipeline registration error:', error)
+    ElMessage.error('Notification dispatch registry failed.')
+  }
+}
 
 /**
  * Generates a deterministic SHA-256 hash string from a file buffer.
@@ -386,5 +503,24 @@ const handleLogout = () => {
   color: #909399;
   font-style: italic;
   font-size: 13px;
+}
+
+.governance-section {
+  text-align: left;
+}
+.section-title {
+  margin: 0 0 4px 0;
+  font-size: 14px;
+  color: #303133;
+}
+.section-desc {
+  font-size: 12px;
+  color: #909399;
+  margin-bottom: 10px;
+}
+.btn-group {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
 }
 </style>
