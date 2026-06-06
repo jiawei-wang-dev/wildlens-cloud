@@ -74,6 +74,29 @@ You are receiving this notification because you subscribed to updates for '{tag_
     print(f"Tag update notification sent for '{tag_name}': {response['MessageId']}")
     return response
 
+def unsubscribe_email_from_tag(email, tag_name):
+    """Unsubscribe an email address from a specific tag's SNS topic"""
+    topic_arn = create_topic_for_tag(tag_name)
+    
+    # Find the subscription ARN for this email
+    paginator = sns_client.get_paginator('list_subscriptions_by_topic')
+    for page in paginator.paginate(TopicArn=topic_arn):
+        for subscription in page['Subscriptions']:
+            if subscription['Endpoint'] == email:
+                sns_client.unsubscribe(
+                    SubscriptionArn=subscription['SubscriptionArn']
+                )
+                print(f"Unsubscribed {email} from tag '{tag_name}'")
+                return {
+                    'statusCode': 200,
+                    'body': json.dumps({'message': f'Unsubscribed {email} from {tag_name}'})
+                }
+    
+    return {
+        'statusCode': 404,
+        'body': json.dumps({'message': 'Subscription not found'})
+    }
+
 def lambda_handler(event, context):
     """
     Lambda entry point for SNS notifications
@@ -101,6 +124,7 @@ def lambda_handler(event, context):
         "tag_name": "koala"
     }
     """
+
     import json
     body = json.loads(event.get('body', '{}')) if isinstance(event.get('body'), str) else event
     action = body.get('action')
@@ -121,6 +145,12 @@ def lambda_handler(event, context):
 
     elif action == 'subscribe':
         return subscribe_email_to_tag(
+            body['email'],
+            body['tag_name']
+    )
+
+    elif action == 'unsubscribe':
+        return unsubscribe_email_from_tag(
             body['email'],
             body['tag_name']
     )
