@@ -346,7 +346,8 @@ const handleSubscribe = async (actionType) => {
     notificationForm.value = { email: '', tag: '' }
   } catch (error) {
     console.error('SNS pipeline registration error:', error)
-    ElMessage.error('Notification dispatch registry failed.')
+    const serverMessage = error.response?.data || 'Notification dispatch registry failed.'
+    ElMessage.error(serverMessage)
   }
 }
 
