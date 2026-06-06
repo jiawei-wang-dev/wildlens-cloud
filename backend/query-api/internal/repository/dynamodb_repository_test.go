@@ -316,6 +316,68 @@ func TestDynamoDBRepositoryReturnsScanError(t *testing.T) {
 	}
 }
 
+func TestDynamoDBRepositoryListObservationsSortsAndFiltersByPrimarySpecies(
+	t *testing.T,
+) {
+	olderItem := mustMarshalMediaFile(t, model.MediaFile{
+		FileID:         "older-file",
+		PrimarySpecies: "Hypsiprymnodon_moschatus",
+		CreatedAt:      "2026-06-05T18:00:24Z",
+	})
+
+	newerItem := mustMarshalMediaFile(t, model.MediaFile{
+		FileID:         "newer-file",
+		PrimarySpecies: "Hypsiprymnodon_moschatus",
+		CreatedAt:      "2026-06-05T19:00:24Z",
+	})
+
+	otherSpeciesItem := mustMarshalMediaFile(t, model.MediaFile{
+		FileID:         "other-species-file",
+		PrimarySpecies: "koala",
+		CreatedAt:      "2026-06-05T20:00:24Z",
+	})
+
+	client := &fakeDynamoDBClient{
+		pages: []*dynamodb.ScanOutput{
+			{
+				Items: []map[string]types.AttributeValue{
+					olderItem,
+					otherSpeciesItem,
+					newerItem,
+				},
+			},
+		},
+	}
+
+	repo := NewDynamoDBRepository(client, "test-table")
+
+	page, err := repo.ListObservations(
+		context.Background(),
+		ObservationListOptions{
+			Limit:   1,
+			Species: "Hypsiprymnodon_moschatus",
+		},
+	)
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+
+	if len(page.Items) != 1 {
+		t.Fatalf("expected 1 item, got %d", len(page.Items))
+	}
+
+	if page.Items[0].FileID != "newer-file" {
+		t.Fatalf(
+			"expected newer matching species first, got %s",
+			page.Items[0].FileID,
+		)
+	}
+
+	if !page.HasMore {
+		t.Fatal("expected has_more true")
+	}
+}
+
 func mustMarshalMediaFile(
 	t *testing.T,
 	file model.MediaFile,

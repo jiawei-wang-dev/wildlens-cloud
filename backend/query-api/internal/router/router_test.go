@@ -39,7 +39,9 @@ func newTestEngine() *gin.Engine {
 				"magpie": 1,
 				"wild":   1,
 			},
-			Status: "ready",
+			PrimarySpecies: "koala",
+			Status:         "ready",
+			CreatedAt:      "2026-06-05T19:00:24Z",
 		},
 		{
 			FileID:           "checksum-video-001",
@@ -55,7 +57,9 @@ func newTestEngine() *gin.Engine {
 				"wombat": 2,
 				"wild":   1,
 			},
-			Status: "ready",
+			PrimarySpecies: "Hypsiprymnodon_moschatus",
+			Status:         "ready",
+			CreatedAt:      "2026-06-04T19:00:24Z",
 		},
 	}
 
@@ -794,6 +798,27 @@ func TestListObservationsReturnsFirstPage(t *testing.T) {
 	}
 }
 
+func TestListObservationsReturnsLatestRecordFirst(t *testing.T) {
+	engine := newTestEngine()
+
+	payload := performObservationListRequest(
+		t,
+		engine,
+		"/api/v1/observations?limit=1",
+	)
+
+	if len(payload.Items) != 1 {
+		t.Fatalf("expected 1 item, got %d", len(payload.Items))
+	}
+
+	if payload.Items[0].FileID != "checksum-image-001" {
+		t.Fatalf(
+			"expected latest file first, got %s",
+			payload.Items[0].FileID,
+		)
+	}
+}
+
 func TestListObservationsReturnsNextPage(t *testing.T) {
 	engine := newTestEngine()
 
@@ -893,6 +918,41 @@ func TestListObservationsFiltersBySpecies(t *testing.T) {
 	}
 }
 
+func TestListObservationsFiltersByPrimarySpecies(t *testing.T) {
+	engine := newTestEngine()
+
+	payload := performObservationListRequest(
+		t,
+		engine,
+		"/api/v1/observations?species=Hypsiprymnodon_moschatus",
+	)
+
+	if len(payload.Items) != 1 {
+		t.Fatalf("expected 1 item, got %d", len(payload.Items))
+	}
+
+	if payload.Items[0].FileID != "checksum-video-001" {
+		t.Fatalf(
+			"unexpected file ID: %s",
+			payload.Items[0].FileID,
+		)
+	}
+}
+
+func TestListObservationsReturnsEmptyForMismatchedSpecies(t *testing.T) {
+	engine := newTestEngine()
+
+	payload := performObservationListRequest(
+		t,
+		engine,
+		"/api/v1/observations?species=missing_species",
+	)
+
+	if len(payload.Items) != 0 {
+		t.Fatalf("expected 0 items, got %d", len(payload.Items))
+	}
+}
+
 func TestListObservationsFiltersBySingleTag(t *testing.T) {
 	engine := newTestEngine()
 
@@ -928,6 +988,27 @@ func TestListObservationsFiltersBySpeciesAndTag(t *testing.T) {
 	}
 
 	if payload.Items[0].FileID != "checksum-image-001" {
+		t.Fatalf(
+			"unexpected file ID: %s",
+			payload.Items[0].FileID,
+		)
+	}
+}
+
+func TestListObservationsFiltersByPrimarySpeciesAndTagUsingAND(t *testing.T) {
+	engine := newTestEngine()
+
+	payload := performObservationListRequest(
+		t,
+		engine,
+		"/api/v1/observations?species=Hypsiprymnodon_moschatus&tag=wild",
+	)
+
+	if len(payload.Items) != 1 {
+		t.Fatalf("expected 1 item, got %d", len(payload.Items))
+	}
+
+	if payload.Items[0].FileID != "checksum-video-001" {
 		t.Fatalf(
 			"unexpected file ID: %s",
 			payload.Items[0].FileID,
