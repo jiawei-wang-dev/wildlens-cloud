@@ -481,9 +481,6 @@ const handleLogout = () => {
 .upload-card {
   position: relative;
 }
-.title-text {
-  font-weight: bold;
-}
 .media-uploader {
   margin-top: 10px;
 }
@@ -523,5 +520,8 @@ const handleLogout = () => {
   display: flex;
   gap: 8px;
   flex-wrap: wrap;
+}
+.card-header span {
+  font-weight: bold;
 }
 </style>
