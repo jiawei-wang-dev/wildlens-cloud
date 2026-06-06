@@ -101,28 +101,30 @@ def lambda_handler(event, context):
         "tag_name": "koala"
     }
     """
-    action = event.get('action')
+    import json
+    body = json.loads(event.get('body', '{}')) if isinstance(event.get('body'), str) else event
+    action = body.get('action')
     
     if action == 'notify_upload':
         return notify_subscribers(
-            event['tag_name'],
-            event['file_url'],
-            event['file_type']
-        )
-    
+            body['tag_name'],
+            body['file_url'],
+            body['file_type']
+    )
+
     elif action == 'notify_tag_update':
         return notify_tag_updated(
-            event['tag_name'],
-            event['file_url'],
-            event['operation']
-        )
-    
+            body['tag_name'],
+            body['file_url'],
+            body['operation']
+    )
+
     elif action == 'subscribe':
         return subscribe_email_to_tag(
-            event['email'],
-            event['tag_name']
-        )
-    
+            body['email'],
+            body['tag_name']
+    )
+
     else:
         return {
             'statusCode': 400,
