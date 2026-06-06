@@ -7,6 +7,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/jiawei-wang-dev/wildlens-cloud/backend/query-api/internal/model"
 )
@@ -46,7 +47,10 @@ func paginateObservations(
 	filteredFiles := filterObservations(files, options)
 
 	sort.Slice(filteredFiles, func(left int, right int) bool {
-		return filteredFiles[left].FileID < filteredFiles[right].FileID
+		return compareObservationCreatedAt(
+			filteredFiles[left],
+			filteredFiles[right],
+		)
 	})
 
 	offset, err := decodeNextToken(options.NextToken)
@@ -65,6 +69,9 @@ func paginateObservations(
 	}
 
 	items := filteredFiles[offset:end]
+
+	normaliseObservationCreatedAt(items)
+
 	hasMore := end < len(filteredFiles)
 
 	nextToken := ""
@@ -84,7 +91,7 @@ func filterObservations(
 	files []model.MediaFile,
 	options ObservationListOptions,
 ) []model.MediaFile {
-	species := strings.ToLower(strings.TrimSpace(options.Species))
+	species := strings.TrimSpace(options.Species)
 	tags := normaliseTags(options.Tags)
 	fileType := strings.ToLower(strings.TrimSpace(options.FileType))
 	status := strings.ToLower(strings.TrimSpace(options.Status))
@@ -92,7 +99,8 @@ func filterObservations(
 	results := make([]model.MediaFile, 0)
 
 	for _, file := range files {
-		if species != "" && file.TagCounts[species] < 1 {
+		if species != "" &&
+			strings.TrimSpace(file.PrimarySpecies) != species {
 			continue
 		}
 
@@ -148,6 +156,64 @@ func hasObservationTag(
 	}
 
 	return false
+}
+
+func compareObservationCreatedAt(
+	left model.MediaFile,
+	right model.MediaFile,
+) bool {
+	leftTime, leftOK := parseObservationCreatedAt(left.CreatedAt)
+	rightTime, rightOK := parseObservationCreatedAt(right.CreatedAt)
+
+	if leftOK && rightOK {
+		if !leftTime.Equal(rightTime) {
+			return leftTime.After(rightTime)
+		}
+
+		return left.FileID < right.FileID
+	}
+
+	if leftOK != rightOK {
+		return leftOK
+	}
+
+	return left.FileID < right.FileID
+}
+
+func normaliseObservationCreatedAt(files []model.MediaFile) {
+	for index := range files {
+		createdAt, ok := parseObservationCreatedAt(files[index].CreatedAt)
+
+		if ok {
+			files[index].CreatedAt = createdAt.UTC().Format(time.RFC3339)
+		}
+	}
+}
+
+func parseObservationCreatedAt(value string) (time.Time, bool) {
+	value = strings.TrimSpace(value)
+
+	if value == "" {
+		return time.Time{}, false
+	}
+
+	layouts := []string{
+		time.RFC3339,
+		time.RFC3339Nano,
+		"2006-01-02T15:04:05",
+		"2006-01-02T15:04:05.999999999",
+		"2006-01-02 15:04:05",
+	}
+
+	for _, layout := range layouts {
+		parsed, err := time.Parse(layout, value)
+
+		if err == nil {
+			return parsed.UTC(), true
+		}
+	}
+
+	return time.Time{}, false
 }
 
 func encodeNextToken(offset int) string {
