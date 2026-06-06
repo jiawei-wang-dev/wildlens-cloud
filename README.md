@@ -59,5 +59,5 @@ wildlens-cloud/
 ├── aws-config.md
 ├── frontend/          (BotingLiu 35201061)
 ├── media-processing/  (JacksonXia 35817135)
-├── query-api/         (JiaWei Wang)
+├── query-api/         (JiaWei Wang 35304723)
 └── auth/              (Yichao Zhu 35636572)
