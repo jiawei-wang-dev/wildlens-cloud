@@ -46,7 +46,8 @@ func newTestEngine() *gin.Engine {
 			},
 			PrimarySpecies: "koala",
 			Status:         "ready",
-			CreatedAt:      "2026-06-05T19:00:24Z",
+			CreatedAt:      "2026-06-05T19:00:24.982264",
+			UpdatedAt:      "2026-06-05T20:00:24+01:00",
 		},
 		{
 			FileID:           "checksum-video-001",
@@ -64,7 +65,8 @@ func newTestEngine() *gin.Engine {
 			},
 			PrimarySpecies: "Hypsiprymnodon_moschatus",
 			Status:         "ready",
-			CreatedAt:      "2026-06-04T19:00:24Z",
+			CreatedAt:      "2026-06-04T19:00:24.211614Z",
+			UpdatedAt:      "2026-06-05T05:00:24+10:00",
 		},
 	}
 
@@ -100,7 +102,8 @@ func newTestEngineWithInference(
 			},
 			PrimarySpecies: "koala",
 			Status:         "ready",
-			CreatedAt:      "2026-06-05T19:00:24Z",
+			CreatedAt:      "2026-06-05T19:00:24.982264",
+			UpdatedAt:      "2026-06-05T20:00:24+01:00",
 		},
 	}
 
@@ -209,6 +212,36 @@ func performObservationListRequest(
 	}
 
 	return payload
+}
+
+func assertNormalizedTimes(
+	t *testing.T,
+	file model.MediaFile,
+) {
+	t.Helper()
+
+	if file.CreatedAt != "2026-06-05T19:00:24Z" {
+		t.Fatalf("expected normalized created_at, got %q", file.CreatedAt)
+	}
+
+	if file.UpdatedAt != "2026-06-05T19:00:24Z" {
+		t.Fatalf("expected normalized updated_at, got %q", file.UpdatedAt)
+	}
+}
+
+func assertTimestampIsUTCRFC3339(
+	t *testing.T,
+	value string,
+) {
+	t.Helper()
+
+	if !strings.HasSuffix(value, "Z") {
+		t.Fatalf("expected UTC timestamp ending with Z, got %q", value)
+	}
+
+	if strings.Contains(value, ".") {
+		t.Fatalf("expected timestamp without fractional seconds, got %q", value)
+	}
 }
 
 func TestHealth(t *testing.T) {
@@ -325,6 +358,8 @@ func TestFindBySpecies(t *testing.T) {
 	if payload.Files[0].FileID != "checksum-image-001" {
 		t.Fatalf("unexpected file ID: %s", payload.Files[0].FileID)
 	}
+
+	assertNormalizedTimes(t, payload.Files[0])
 }
 
 func TestFindByTagCountsUsesAND(t *testing.T) {
@@ -353,6 +388,8 @@ func TestFindByTagCountsUsesAND(t *testing.T) {
 		if len(payload.Files) != 1 {
 			t.Fatalf("expected 1 file, got %d", len(payload.Files))
 		}
+
+		assertNormalizedTimes(t, payload.Files[0])
 	})
 
 	t.Run("single tag below minimum does not match", func(t *testing.T) {
@@ -708,6 +745,8 @@ func TestQueryByFileReturnsMatches(t *testing.T) {
 	if payload.Items[0].FileID != "checksum-image-001" {
 		t.Fatalf("unexpected file ID: %s", payload.Items[0].FileID)
 	}
+
+	assertNormalizedTimes(t, payload.Items[0])
 }
 
 func TestQueryByFileRejectsNonImage(t *testing.T) {
@@ -818,6 +857,8 @@ func TestQueryByFileAliasMatchesCanonicalRoute(t *testing.T) {
 	if len(payload.Items) != 1 {
 		t.Fatalf("expected 1 item, got %d", len(payload.Items))
 	}
+
+	assertNormalizedTimes(t, payload.Items[0])
 }
 
 func TestUpdateTagsAddsTag(t *testing.T) {
@@ -1221,6 +1262,8 @@ func TestListObservationsReturnsFirstPage(t *testing.T) {
 	if payload.NextToken == "" {
 		t.Fatal("expected non-empty next_token")
 	}
+
+	assertNormalizedTimes(t, payload.Items[0])
 }
 
 func TestListObservationsReturnsLatestRecordFirst(t *testing.T) {
@@ -1242,6 +1285,8 @@ func TestListObservationsReturnsLatestRecordFirst(t *testing.T) {
 			payload.Items[0].FileID,
 		)
 	}
+
+	assertNormalizedTimes(t, payload.Items[0])
 }
 
 func TestListObservationsReturnsNextPage(t *testing.T) {
@@ -1341,6 +1386,8 @@ func TestListObservationsFiltersBySpecies(t *testing.T) {
 			payload.Items[0].FileID,
 		)
 	}
+
+	assertNormalizedTimes(t, payload.Items[0])
 }
 
 func TestListObservationsFiltersByPrimarySpecies(t *testing.T) {
@@ -1362,6 +1409,9 @@ func TestListObservationsFiltersByPrimarySpecies(t *testing.T) {
 			payload.Items[0].FileID,
 		)
 	}
+
+	assertTimestampIsUTCRFC3339(t, payload.Items[0].CreatedAt)
+	assertTimestampIsUTCRFC3339(t, payload.Items[0].UpdatedAt)
 }
 
 func TestListObservationsReturnsEmptyForMismatchedSpecies(t *testing.T) {
