@@ -433,6 +433,49 @@ func TestQueryByFileUsesInferenceTagCountsWithAND(t *testing.T) {
 	}
 }
 
+func TestQueryByFileMatchesUppercaseHistoricalTagCountKeys(t *testing.T) {
+	repo := repository.NewMemoryRepository([]model.MediaFile{
+		{
+			FileID:              "checksum-image-001",
+			Bucket:              "wildlens-media",
+			ObjectPath:          "media/originals/bird.jpg",
+			ThumbnailObjectPath: "media/thumbnails/bird.jpg",
+			TagCounts: map[string]int{
+				"Alectura_lathami": 1,
+			},
+		},
+	})
+	imageInference := &fakeImageInferenceClient{
+		result: inference.ImageResult{
+			Tags: []string{"alectura_lathami"},
+		},
+	}
+	queryService := NewQueryServiceWithAllDependencies(
+		repo,
+		nil,
+		nil,
+		imageInference,
+	)
+
+	response, err := queryService.QueryByFile(
+		context.Background(),
+		"query.jpg",
+		"image/jpeg",
+		[]byte("image bytes"),
+	)
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+
+	if len(response.Items) != 1 {
+		t.Fatalf("expected 1 item, got %d", len(response.Items))
+	}
+
+	if response.Items[0].FileID != "checksum-image-001" {
+		t.Fatalf("unexpected file ID: %s", response.Items[0].FileID)
+	}
+}
+
 func TestQueryByFileReturnsEmptyWhenNoTagsDetected(t *testing.T) {
 	calls := make([]string, 0)
 	repo := &fakeMediaRepository{

@@ -90,18 +90,7 @@ func (r *DynamoDBRepository) FindByTagCounts(
 	results := make([]model.MediaFile, 0)
 
 	for _, file := range files {
-		matched := true
-
-		for tag, minimumCount := range required {
-			tag = strings.ToLower(strings.TrimSpace(tag))
-
-			if file.TagCounts[tag] < minimumCount {
-				matched = false
-				break
-			}
-		}
-
-		if matched {
+		if matchesTagCountMinimums(file, required) {
 			results = append(results, file)
 		}
 	}

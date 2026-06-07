@@ -88,6 +88,87 @@ func TestMemoryRepositoryFindByTagCountsUsesAND(t *testing.T) {
 	}
 }
 
+func TestMemoryRepositoryFindByTagCountsNormalisesHistoricalKeys(t *testing.T) {
+	repo := NewMemoryRepository([]model.MediaFile{
+		{
+			FileID: "checksum-image-001",
+			TagCounts: map[string]int{
+				"Alectura_lathami": 1,
+				"magpie":           2,
+			},
+		},
+		{
+			FileID: "checksum-image-002",
+			TagCounts: map[string]int{
+				"alectura_lathami": 1,
+			},
+		},
+	})
+
+	files, err := repo.FindByTagCounts(
+		context.Background(),
+		map[string]int{"alectura_lathami": 1},
+	)
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+
+	if len(files) != 2 {
+		t.Fatalf("expected 2 files, got %d", len(files))
+	}
+
+	files, err = repo.FindByTagCounts(
+		context.Background(),
+		map[string]int{"Alectura_lathami": 1},
+	)
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+
+	if len(files) != 2 {
+		t.Fatalf("expected 2 files, got %d", len(files))
+	}
+
+	files, err = repo.FindByTagCounts(
+		context.Background(),
+		map[string]int{
+			"alectura_lathami": 1,
+			"magpie":           2,
+		},
+	)
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+
+	if len(files) != 1 || files[0].FileID != "checksum-image-001" {
+		t.Fatalf("expected checksum-image-001, got %#v", files)
+	}
+}
+
+func TestMemoryRepositoryFindByTagCountsDoesNotAccumulateCaseDuplicates(t *testing.T) {
+	repo := NewMemoryRepository([]model.MediaFile{
+		{
+			FileID: "checksum-image-001",
+			TagCounts: map[string]int{
+				"Alectura_lathami": 1,
+				"alectura_lathami": 1,
+			},
+		},
+	})
+
+	files, err := repo.FindByTagCounts(
+		context.Background(),
+		map[string]int{"alectura_lathami": 2},
+	)
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+
+	if len(files) != 0 {
+		t.Fatalf("expected 0 files, got %d", len(files))
+	}
+}
+
 func TestDynamoDBRepositoryFindByTagCountsMinimums(t *testing.T) {
 	item := mustMarshalMediaFile(t, model.MediaFile{
 		FileID: "checksum-image-001",
@@ -148,6 +229,115 @@ func TestDynamoDBRepositoryFindByTagCountsUsesANDMinimums(t *testing.T) {
 		map[string]int{
 			"koala":  3,
 			"magpie": 2,
+		},
+	)
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+
+	if len(files) != 0 {
+		t.Fatalf("expected 0 files, got %d", len(files))
+	}
+}
+
+func TestDynamoDBRepositoryFindByTagCountsNormalisesHistoricalKeys(t *testing.T) {
+	uppercaseItem := mustMarshalMediaFile(t, model.MediaFile{
+		FileID: "checksum-image-001",
+		TagCounts: map[string]int{
+			"Alectura_lathami": 1,
+			"magpie":           2,
+		},
+	})
+	lowercaseItem := mustMarshalMediaFile(t, model.MediaFile{
+		FileID: "checksum-image-002",
+		TagCounts: map[string]int{
+			"alectura_lathami": 1,
+		},
+	})
+
+	newRepo := func() *DynamoDBRepository {
+		return NewDynamoDBRepository(
+			&fakeDynamoDBClient{
+				pages: []*dynamodb.ScanOutput{
+					{
+						Items: []map[string]types.AttributeValue{
+							uppercaseItem,
+							lowercaseItem,
+						},
+					},
+				},
+			},
+			"test-table",
+		)
+	}
+
+	files, err := newRepo().FindByTagCounts(
+		context.Background(),
+		map[string]int{"alectura_lathami": 1},
+	)
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+
+	if len(files) != 2 {
+		t.Fatalf("expected 2 files, got %d", len(files))
+	}
+
+	files, err = newRepo().FindByTagCounts(
+		context.Background(),
+		map[string]int{"Alectura_lathami": 1},
+	)
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+
+	if len(files) != 2 {
+		t.Fatalf("expected 2 files, got %d", len(files))
+	}
+
+	files, err = newRepo().FindByTagCounts(
+		context.Background(),
+		map[string]int{
+			"Alectura_lathami": 1,
+			"magpie":           2,
+		},
+	)
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+
+	if len(files) != 1 || files[0].FileID != "checksum-image-001" {
+		t.Fatalf("expected checksum-image-001, got %#v", files)
+	}
+}
+
+func TestDynamoDBRepositoryFindByTagCountsDoesNotMatchInsufficientMixedCaseCount(t *testing.T) {
+	item := mustMarshalMediaFile(t, model.MediaFile{
+		FileID: "checksum-image-001",
+		TagCounts: map[string]int{
+			"Alectura_lathami": 1,
+			"magpie":           1,
+		},
+	})
+
+	repo := NewDynamoDBRepository(
+		&fakeDynamoDBClient{
+			pages: []*dynamodb.ScanOutput{
+				{
+					Items: []map[string]types.AttributeValue{
+						item,
+					},
+				},
+			},
+		},
+		"test-table",
+	)
+
+	files, err := repo.FindByTagCounts(
+		context.Background(),
+		map[string]int{
+			"alectura_lathami": 1,
+			"magpie":           2,
 		},
 	)
 	if err != nil {

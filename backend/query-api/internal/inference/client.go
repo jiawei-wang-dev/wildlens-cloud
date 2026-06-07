@@ -61,7 +61,7 @@ func NewHTTPClient(
 ) *HTTPClient {
 	if httpClient == nil {
 		httpClient = &http.Client{
-			Timeout: 30 * time.Second,
+			Timeout: 120 * time.Second,
 		}
 	}
 
