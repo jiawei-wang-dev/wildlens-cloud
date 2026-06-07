@@ -111,7 +111,7 @@ def call_gcp_infer(bucket, key, file_id, file_type, presigned_url=None):
         GCP_INFER_URL,
         json=payload,
         headers=headers,
-        timeout=60
+        timeout=270
     )
     
     print(f"GCP response status: {response.status_code}")
