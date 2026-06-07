@@ -20,6 +20,61 @@ def test_health_returns_ok():
     assert response.json() == {"status": "ok"}
 
 
+def test_infer_file_returns_ready_with_detected_tags(monkeypatch):
+    client = TestClient(media_app.app)
+    calls = {}
+
+    def fake_detect_image(image_path):
+        calls["image_path"] = image_path
+        assert Path(image_path).exists()
+        assert Path(image_path).read_bytes() == b"fake image bytes"
+        return [{"label": "Bos_taurus", "count": 1, "confidence": 0.92}]
+
+    monkeypatch.setattr(media_app, "detect_image", fake_detect_image)
+    monkeypatch.setattr(media_app, "get_model_version", lambda: "provided-aussie-ecolense-v1")
+
+    response = client.post(
+        "/infer-file",
+        files={"file": ("query.jpg", b"fake image bytes", "image/jpeg")},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body == {
+        "tags": ["Bos_taurus"],
+        "tag_counts": {"Bos_taurus": 1},
+        "primary_species": "Bos_taurus",
+        "model_version": "provided-aussie-ecolense-v1",
+        "status": "ready",
+        "error": None,
+    }
+    assert calls["image_path"].endswith("query.jpg")
+
+
+def test_infer_file_detection_failure_returns_failed_response(monkeypatch):
+    client = TestClient(media_app.app)
+
+    def fake_detect_image(image_path):
+        raise RuntimeError("detector unavailable")
+
+    monkeypatch.setattr(media_app, "detect_image", fake_detect_image)
+    monkeypatch.setattr(media_app, "get_model_version", lambda: "provided-aussie-ecolense-v1")
+
+    response = client.post(
+        "/infer-file",
+        files={"file": ("query.jpg", b"fake image bytes", "image/jpeg")},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["tags"] == []
+    assert body["tag_counts"] == {}
+    assert body["primary_species"] is None
+    assert body["model_version"] == "provided-aussie-ecolense-v1"
+    assert body["status"] == "failed"
+    assert body["error"] == "query file inference failed: detector unavailable"
+
+
 def make_infer_payload(**overrides):
     payload = {
         "file_id": VALID_CHECKSUM,
