@@ -99,6 +99,39 @@ func TestS3ObjectDeleterDeletesVideoOriginalOnly(t *testing.T) {
 	)
 }
 
+func TestS3ObjectDeleterDeletesVideoOriginalAndRepresentativeThumbnail(t *testing.T) {
+	client := &fakeS3DeleteClient{}
+	deleter := NewS3ObjectDeleter(client)
+
+	err := deleter.DeleteMediaObjects(
+		context.Background(),
+		[]model.MediaFile{
+			{
+				Bucket:              "wildlens-media",
+				ObjectPath:          "media/originals/wombat.mp4",
+				ThumbnailObjectPath: "media/thumbnails/wombat-frame.jpg",
+			},
+		},
+	)
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+
+	if len(client.inputs) != 1 {
+		t.Fatalf("expected 1 DeleteObjects call, got %d", len(client.inputs))
+	}
+
+	assertDeleteInputKeys(
+		t,
+		client.inputs[0],
+		"wildlens-media",
+		[]string{
+			"media/originals/wombat.mp4",
+			"media/thumbnails/wombat-frame.jpg",
+		},
+	)
+}
+
 func TestS3ObjectDeleterDeduplicatesKeysWithinBucket(t *testing.T) {
 	client := &fakeS3DeleteClient{}
 	deleter := NewS3ObjectDeleter(client)
