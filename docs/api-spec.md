@@ -185,6 +185,229 @@ Adding tags may trigger SNS notifications in a later integration step.
 
 The first local implementation uses `MemoryRepository`. DynamoDB persistence is added separately.
 
+## Advanced Tag Count Query
+
+Finds media records whose tag counts satisfy every requested minimum.
+
+### Endpoint
+
+```text
+POST /api/v1/query/tags
+```
+
+### Request Body
+
+The canonical FIT5225 format is a JSON object mapping tag names to minimum counts:
+
+```json
+{
+  "koala": 3,
+  "wombat": 2
+}
+```
+
+The compatibility wrapper remains supported:
+
+```json
+{
+  "tag_counts": {
+    "koala": 3,
+    "wombat": 2
+  }
+}
+```
+
+### Business Rules
+
+* Multiple tags use AND logic.
+* Each tag must have `tag_counts[tag] >= requested_count`.
+* Tag names are trimmed and normalised to lowercase.
+* Counts must be positive integers.
+* Empty JSON, `0`, negative counts, and invalid value types return `400 Bad Request`.
+* This endpoint remains separate from ordinary repeated `tag` filters on `GET /api/v1/observations`.
+
+### Successful Response
+
+```json
+{
+  "files": [
+    {
+      "file_id": "checksum-image-001",
+      "file_url": "s3://wildlens-media/media/originals/koala.jpg",
+      "tags": ["koala", "wombat"],
+      "tag_counts": {
+        "koala": 3,
+        "wombat": 2
+      }
+    }
+  ]
+}
+```
+
+### Invalid Request
+
+HTTP status:
+
+```text
+400 Bad Request
+```
+
+## Thumbnail Reverse Lookup
+
+Maps a thumbnail URL back to the original file URL.
+
+### Canonical Endpoint
+
+```text
+POST /api/v1/query/thumbnail
+```
+
+### Compatibility Alias
+
+```text
+GET /api/v1/observations/lookup?thumbnail_url=<URL_STRING>
+```
+
+### Request Body
+
+```json
+{
+  "thumbnail_url": "https://example.com/media/thumbnails/checksum.jpg"
+}
+```
+
+### Business Rules
+
+* The POST route is the canonical route.
+* The GET alias exists for frontend advanced-query panels.
+* Stable `thumbnail_url` values and presigned `thumbnail_display_url` values are accepted.
+* Presigned query strings are ignored during matching.
+* Matching is based on the S3 thumbnail object path, not the signature query string.
+
+### Successful Response
+
+```json
+{
+  "file_url": "https://example.com/media/originals/koala.jpg"
+}
+```
+
+### Not Found
+
+HTTP status:
+
+```text
+404 Not Found
+```
+
+Example response:
+
+```json
+{
+  "error": "media file not found"
+}
+```
+
+## Temporary Image Query
+
+Searches existing media records by running stateless inference on a temporary image.
+
+### Canonical Endpoint
+
+```text
+POST /api/v1/query/file
+```
+
+### Compatibility Alias
+
+```text
+POST /api/v1/observations/search-by-file
+```
+
+### Request
+
+Content type:
+
+```text
+multipart/form-data
+```
+
+Multipart field:
+
+```text
+file
+```
+
+### Business Rules
+
+* Only `image/jpeg` and `image/png` are accepted.
+* Maximum file size is `10 MiB`.
+* The temporary query image is not uploaded to S3.
+* The temporary query image is not written to DynamoDB.
+* The temporary query image does not trigger the formal upload-url or S3 Event pipeline.
+* The backend forwards the bytes to the stateless inference service configured by `TEMP_QUERY_INFER_URL`.
+* If inference returns `tag_counts`, those counts are used as minimums.
+* If inference returns only `tags`, each tag becomes a minimum count of `1`.
+* Multiple detected tags use AND logic when querying existing media records.
+* If no tags are detected, the API returns an empty result list.
+* Inference service errors return `502 Bad Gateway`.
+
+### Inference Service Contract
+
+Environment variable:
+
+```text
+TEMP_QUERY_INFER_URL
+```
+
+Request:
+
+```text
+POST ${TEMP_QUERY_INFER_URL}
+Content-Type: multipart/form-data
+```
+
+Multipart field:
+
+```text
+file
+```
+
+Expected response:
+
+```json
+{
+  "tags": ["koala", "magpie"],
+  "tag_counts": {
+    "koala": 1,
+    "magpie": 1
+  },
+  "primary_species": "koala",
+  "model_version": "provided-aussie-ecolense-v1"
+}
+```
+
+### Successful Response
+
+```json
+{
+  "detected_tags": ["koala", "magpie"],
+  "items": [
+    {
+      "file_id": "checksum-image-001",
+      "file_url": "s3://wildlens-media/media/originals/koala.jpg",
+      "thumbnail_display_url": "https://temporary-signed-url",
+      "file_download_url": "https://temporary-signed-url",
+      "tags": ["koala", "magpie"],
+      "tag_counts": {
+        "koala": 3,
+        "magpie": 1
+      }
+    }
+  ]
+}
+```
+
 ## Bulk Media Deletion
 
 Deletes multiple media metadata records by their stable original or thumbnail URLs.
@@ -340,6 +563,9 @@ GET /api/v1/observations?species=koala&tag=wild&tag=cute&limit=10
       "file_id": "checksum-image-001",
       "original_filename": "koala.jpg",
       "file_type": "image",
+      "file_url": "s3://wildlens-media/media/originals/koala.jpg",
+      "thumbnail_display_url": "https://temporary-signed-url",
+      "file_download_url": "https://temporary-signed-url",
       "primary_species": "koala",
       "tags": [
         "koala",
@@ -370,6 +596,14 @@ GET /api/v1/observations?species=koala&tag=wild&tag=cute&limit=10
 
 * Multiple `tag` parameters use AND logic.
 * Empty `tag` values are ignored.
+* `species` uses strict string equality against `primary_species`.
+* Records are filtered first, sorted by `created_at` descending, and then paginated.
+
+### Frontend Field Contract
+
+* `item.file_url` is the stable URL to pass to bulk tag updates and file deletion.
+* `item.thumbnail_display_url` is the temporary URL for table thumbnail display.
+* `item.file_download_url` is the temporary URL for downloading the original media.
 
 ### Invalid Request
 

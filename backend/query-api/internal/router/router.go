@@ -37,9 +37,12 @@ func New(queryHandler *handler.QueryHandler) *gin.Engine {
 		api.POST("/query/species", queryHandler.FindBySpecies)
 		api.POST("/query/tags", queryHandler.FindByTagCounts)
 		api.POST("/query/thumbnail", queryHandler.FindOriginalByThumbnailURL)
+		api.POST("/query/file", queryHandler.QueryByFile)
 		api.POST("/tags/update", queryHandler.UpdateTags)
 		api.DELETE("/files", queryHandler.DeleteFiles)
 		api.GET("/observations", queryHandler.ListObservations)
+		api.GET("/observations/lookup", queryHandler.LookupOriginalByThumbnailURL)
+		api.POST("/observations/search-by-file", queryHandler.QueryByFile)
 	}
 
 	return engine

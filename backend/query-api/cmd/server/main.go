@@ -34,10 +34,11 @@ func main() {
 		log.Fatalf("create media object deleter: %v", err)
 	}
 
-	queryService := service.NewQueryServiceWithDependencies(
+	queryService := service.NewQueryServiceWithAllDependencies(
 		repo,
 		urlSigner,
 		objectDeleter,
+		buildImageInferenceClient(cfg),
 	)
 	queryHandler := handler.NewQueryHandler(queryService)
 
