@@ -1,5 +1,6 @@
 pytest
 fastapi
+python-multipart
 httpx
 pydantic
 uvicorn[standard]

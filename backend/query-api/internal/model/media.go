@@ -34,6 +34,12 @@ type SpeciesQueryRequest struct {
 // Example: {"koala": 3, "magpie": 1}
 type TagCountQueryRequest map[string]int
 
+// FileQueryResponse contains results from a temporary image query.
+type FileQueryResponse struct {
+	DetectedTags []string    `json:"detected_tags"`
+	Items        []MediaFile `json:"items"`
+}
+
 // ThumbnailQueryRequest maps a thumbnail URL to its original file URL.
 type ThumbnailQueryRequest struct {
 	ThumbnailURL string `json:"thumbnail_url" binding:"required"`
