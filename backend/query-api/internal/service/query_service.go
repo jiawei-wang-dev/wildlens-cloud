@@ -115,6 +115,10 @@ func (s *QueryService) FindBySpecies(
 		return nil, err
 	}
 
+	if err := s.addDisplayURLs(ctx, files); err != nil {
+		return nil, err
+	}
+
 	model.NormalizeMediaFilesTimes(files)
 
 	return files, nil
@@ -138,6 +142,10 @@ func (s *QueryService) FindByTagCounts(
 
 	files, err := s.repo.FindByTagCounts(ctx, cleanRequired)
 	if err != nil {
+		return nil, err
+	}
+
+	if err := s.addDisplayURLs(ctx, files); err != nil {
 		return nil, err
 	}
 
