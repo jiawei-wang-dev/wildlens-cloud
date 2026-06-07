@@ -105,6 +105,25 @@ func newTestEngineWithInference(
 			CreatedAt:      "2026-06-05T19:00:24.982264",
 			UpdatedAt:      "2026-06-05T20:00:24+01:00",
 		},
+		{
+			FileID:           "checksum-video-001",
+			OriginalFilename: "wombat.mp4",
+			FileType:         "video",
+			MimeType:         "video/mp4",
+			ChecksumSHA256:   "checksum-video-001",
+			Bucket:           "wildlens-media",
+			ObjectPath:       "media/originals/wombat.mp4",
+			FileURL:          "s3://wildlens-media/media/originals/wombat.mp4",
+			Tags:             []string{"wombat", "wild"},
+			TagCounts: map[string]int{
+				"wombat": 2,
+				"wild":   1,
+			},
+			PrimarySpecies: "Hypsiprymnodon_moschatus",
+			Status:         "ready",
+			CreatedAt:      "2026-06-04T19:00:24.211614Z",
+			UpdatedAt:      "2026-06-05T05:00:24+10:00",
+		},
 	}
 
 	repo := repository.NewMemoryRepository(files)
@@ -244,6 +263,35 @@ func assertTimestampIsUTCRFC3339(
 	}
 }
 
+func assertVideoResponseFields(
+	t *testing.T,
+	file model.MediaFile,
+) {
+	t.Helper()
+
+	if file.FileType != "video" {
+		t.Fatalf("expected video file_type, got %q", file.FileType)
+	}
+
+	if file.FileURL == "" {
+		t.Fatal("expected stable video file_url")
+	}
+
+	if file.FileDownloadURL == "" {
+		t.Fatal("expected full video file_download_url")
+	}
+
+	if file.ThumbnailDisplayURL != "" {
+		t.Fatalf(
+			"expected no thumbnail_display_url for video, got %q",
+			file.ThumbnailDisplayURL,
+		)
+	}
+
+	assertTimestampIsUTCRFC3339(t, file.CreatedAt)
+	assertTimestampIsUTCRFC3339(t, file.UpdatedAt)
+}
+
 func TestHealth(t *testing.T) {
 	engine := newTestEngine()
 
@@ -360,6 +408,39 @@ func TestFindBySpecies(t *testing.T) {
 	}
 
 	assertNormalizedTimes(t, payload.Files[0])
+}
+
+func TestFindBySpeciesReturnsVideo(t *testing.T) {
+	engine := newTestEngine()
+
+	response := performJSONRequest(
+		engine,
+		http.MethodPost,
+		"/api/v1/query/species",
+		`{"species":"wombat"}`,
+	)
+
+	if response.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", response.Code)
+	}
+
+	var payload struct {
+		Files []model.MediaFile `json:"files"`
+	}
+
+	if err := json.Unmarshal(response.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+
+	if len(payload.Files) != 1 {
+		t.Fatalf("expected 1 file, got %d", len(payload.Files))
+	}
+
+	if payload.Files[0].FileID != "checksum-video-001" {
+		t.Fatalf("unexpected file ID: %s", payload.Files[0].FileID)
+	}
+
+	assertVideoResponseFields(t, payload.Files[0])
 }
 
 func TestFindByTagCountsUsesAND(t *testing.T) {
@@ -506,6 +587,39 @@ func TestFindByTagCountsRejectsNegativeMinimumCount(t *testing.T) {
 	if response.Code != http.StatusBadRequest {
 		t.Fatalf("expected status 400, got %d", response.Code)
 	}
+}
+
+func TestFindByTagCountsReturnsVideo(t *testing.T) {
+	engine := newTestEngine()
+
+	response := performJSONRequest(
+		engine,
+		http.MethodPost,
+		"/api/v1/query/tags",
+		`{"wombat":2}`,
+	)
+
+	if response.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", response.Code)
+	}
+
+	var payload struct {
+		Files []model.MediaFile `json:"files"`
+	}
+
+	if err := json.Unmarshal(response.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+
+	if len(payload.Files) != 1 {
+		t.Fatalf("expected 1 file, got %d", len(payload.Files))
+	}
+
+	if payload.Files[0].FileID != "checksum-video-001" {
+		t.Fatalf("unexpected file ID: %s", payload.Files[0].FileID)
+	}
+
+	assertVideoResponseFields(t, payload.Files[0])
 }
 
 func TestFindByTagCountsRejectsInvalidType(t *testing.T) {
@@ -747,6 +861,43 @@ func TestQueryByFileReturnsMatches(t *testing.T) {
 	}
 
 	assertNormalizedTimes(t, payload.Items[0])
+}
+
+func TestQueryByFileReturnsMatchingVideo(t *testing.T) {
+	imageInference := &fakeRouterInferenceClient{
+		result: inference.ImageResult{
+			Tags: []string{"wombat"},
+		},
+	}
+	engine := newTestEngineWithInference(imageInference)
+
+	response := performMultipartFileRequest(
+		engine,
+		"/api/v1/query/file",
+		"query.jpg",
+		"image/jpeg",
+		[]byte("image bytes"),
+	)
+
+	if response.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", response.Code)
+	}
+
+	var payload model.FileQueryResponse
+
+	if err := json.Unmarshal(response.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+
+	if len(payload.Items) != 1 {
+		t.Fatalf("expected 1 item, got %d", len(payload.Items))
+	}
+
+	if payload.Items[0].FileID != "checksum-video-001" {
+		t.Fatalf("unexpected file ID: %s", payload.Items[0].FileID)
+	}
+
+	assertVideoResponseFields(t, payload.Items[0])
 }
 
 func TestQueryByFileRejectsNonImage(t *testing.T) {
@@ -1129,6 +1280,95 @@ func TestDeleteFilesRemovesMatchedFileByThumbnailURL(t *testing.T) {
 	}
 }
 
+func TestDeleteFilesRemovesVideoWithoutThumbnail(t *testing.T) {
+	engine := newTestEngine()
+
+	response := performJSONRequest(
+		engine,
+		http.MethodDelete,
+		"/api/v1/files",
+		`{
+			"urls": [
+				"s3://wildlens-media/media/originals/wombat.mp4"
+			]
+		}`,
+	)
+
+	if response.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", response.Code)
+	}
+
+	var payload model.FileDeleteResponse
+
+	if err := json.Unmarshal(response.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+
+	if payload.DeletedCount != 1 {
+		t.Fatalf(
+			"expected deleted_count 1, got %d",
+			payload.DeletedCount,
+		)
+	}
+
+	if len(payload.DeletedFileIDs) != 1 ||
+		payload.DeletedFileIDs[0] != "checksum-video-001" {
+		t.Fatalf("unexpected deleted file IDs: %v", payload.DeletedFileIDs)
+	}
+}
+
+func TestDeleteFilesRemovesMixedImageAndVideo(t *testing.T) {
+	engine := newTestEngine()
+
+	response := performJSONRequest(
+		engine,
+		http.MethodDelete,
+		"/api/v1/files",
+		`{
+			"urls": [
+				"s3://wildlens-media/media/originals/koala.jpg",
+				"s3://wildlens-media/media/originals/wombat.mp4"
+			]
+		}`,
+	)
+
+	if response.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", response.Code)
+	}
+
+	var payload model.FileDeleteResponse
+
+	if err := json.Unmarshal(response.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+
+	if payload.DeletedCount != 2 {
+		t.Fatalf(
+			"expected deleted_count 2, got %d",
+			payload.DeletedCount,
+		)
+	}
+
+	deletedIDs := make(map[string]struct{})
+
+	for _, fileID := range payload.DeletedFileIDs {
+		deletedIDs[fileID] = struct{}{}
+	}
+
+	for _, expectedID := range []string{
+		"checksum-image-001",
+		"checksum-video-001",
+	} {
+		if _, exists := deletedIDs[expectedID]; !exists {
+			t.Fatalf(
+				"expected deleted file ID %s in %v",
+				expectedID,
+				payload.DeletedFileIDs,
+			)
+		}
+	}
+}
+
 func TestDeleteFilesIgnoresUnknownURL(t *testing.T) {
 	engine := newTestEngine()
 
@@ -1264,6 +1504,46 @@ func TestListObservationsReturnsFirstPage(t *testing.T) {
 	}
 
 	assertNormalizedTimes(t, payload.Items[0])
+}
+
+func TestListObservationsIncludesVideoWithoutThumbnail(t *testing.T) {
+	engine := newTestEngine()
+
+	payload := performObservationListRequest(
+		t,
+		engine,
+		"/api/v1/observations?limit=10",
+	)
+
+	if len(payload.Items) != 2 {
+		t.Fatalf("expected 2 items, got %d", len(payload.Items))
+	}
+
+	var video *model.MediaFile
+	var image *model.MediaFile
+
+	for index := range payload.Items {
+		switch payload.Items[index].FileID {
+		case "checksum-video-001":
+			video = &payload.Items[index]
+		case "checksum-image-001":
+			image = &payload.Items[index]
+		}
+	}
+
+	if image == nil {
+		t.Fatal("expected image record")
+	}
+
+	if image.ThumbnailDisplayURL == "" {
+		t.Fatal("expected image thumbnail_display_url")
+	}
+
+	if video == nil {
+		t.Fatal("expected video record")
+	}
+
+	assertVideoResponseFields(t, *video)
 }
 
 func TestListObservationsReturnsLatestRecordFirst(t *testing.T) {
