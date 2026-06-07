@@ -19,6 +19,7 @@ type AppConfig struct {
 	Repository        string
 	AWSRegion         string
 	DynamoDBTableName string
+	TempQueryInferURL string
 }
 
 // Load reads application configuration from environment variables.
@@ -34,6 +35,9 @@ func Load() (AppConfig, error) {
 		),
 		DynamoDBTableName: strings.TrimSpace(
 			os.Getenv("DYNAMODB_TABLE_NAME"),
+		),
+		TempQueryInferURL: strings.TrimSpace(
+			os.Getenv("TEMP_QUERY_INFER_URL"),
 		),
 	}
 

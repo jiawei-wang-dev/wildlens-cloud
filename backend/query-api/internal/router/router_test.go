@@ -2,15 +2,20 @@ package router_test
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
+	"errors"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
+	"net/textproto"
 	"strings"
 	"testing"
 
 	"github.com/gin-gonic/gin"
 
 	"github.com/jiawei-wang-dev/wildlens-cloud/backend/query-api/internal/handler"
+	"github.com/jiawei-wang-dev/wildlens-cloud/backend/query-api/internal/inference"
 	"github.com/jiawei-wang-dev/wildlens-cloud/backend/query-api/internal/model"
 	"github.com/jiawei-wang-dev/wildlens-cloud/backend/query-api/internal/repository"
 	"github.com/jiawei-wang-dev/wildlens-cloud/backend/query-api/internal/router"
@@ -70,6 +75,64 @@ func newTestEngine() *gin.Engine {
 	return router.New(queryHandler)
 }
 
+func newTestEngineWithInference(
+	imageInference inference.ImageClient,
+) *gin.Engine {
+	gin.SetMode(gin.TestMode)
+
+	files := []model.MediaFile{
+		{
+			FileID:              "checksum-image-001",
+			OriginalFilename:    "koala.jpg",
+			FileType:            "image",
+			MimeType:            "image/jpeg",
+			ChecksumSHA256:      "checksum-image-001",
+			Bucket:              "wildlens-media",
+			ObjectPath:          "media/originals/koala.jpg",
+			ThumbnailObjectPath: "media/thumbnails/koala.jpg",
+			FileURL:             "s3://wildlens-media/media/originals/koala.jpg",
+			ThumbnailURL:        "s3://wildlens-media/media/thumbnails/koala.jpg",
+			Tags:                []string{"koala", "magpie", "wild"},
+			TagCounts: map[string]int{
+				"koala":  3,
+				"magpie": 1,
+				"wild":   1,
+			},
+			PrimarySpecies: "koala",
+			Status:         "ready",
+			CreatedAt:      "2026-06-05T19:00:24Z",
+		},
+	}
+
+	repo := repository.NewMemoryRepository(files)
+	queryService := service.NewQueryServiceWithAllDependencies(
+		repo,
+		nil,
+		nil,
+		imageInference,
+	)
+	queryHandler := handler.NewQueryHandler(queryService)
+
+	return router.New(queryHandler)
+}
+
+type fakeRouterInferenceClient struct {
+	result inference.ImageResult
+	err    error
+	called bool
+}
+
+func (f *fakeRouterInferenceClient) InferImage(
+	_ context.Context,
+	_ string,
+	_ string,
+	_ []byte,
+) (inference.ImageResult, error) {
+	f.called = true
+
+	return f.result, f.err
+}
+
 // performJSONRequest sends a JSON request to the test router.
 func performJSONRequest(
 	engine http.Handler,
@@ -83,6 +146,35 @@ func performJSONRequest(
 		bytes.NewBufferString(body),
 	)
 	request.Header.Set("Content-Type", "application/json")
+
+	response := httptest.NewRecorder()
+	engine.ServeHTTP(response, request)
+
+	return response
+}
+
+func performMultipartFileRequest(
+	engine http.Handler,
+	path string,
+	filename string,
+	contentType string,
+	data []byte,
+) *httptest.ResponseRecorder {
+	body := &bytes.Buffer{}
+	writer := multipart.NewWriter(body)
+	partHeader := make(textproto.MIMEHeader)
+	partHeader.Set(
+		"Content-Disposition",
+		`form-data; name="file"; filename="`+filename+`"`,
+	)
+	partHeader.Set("Content-Type", contentType)
+
+	part, _ := writer.CreatePart(partHeader)
+	_, _ = part.Write(data)
+	_ = writer.Close()
+
+	request := httptest.NewRequest(http.MethodPost, path, body)
+	request.Header.Set("Content-Type", writer.FormDataContentType())
 
 	response := httptest.NewRecorder()
 	engine.ServeHTTP(response, request)
@@ -238,12 +330,87 @@ func TestFindBySpecies(t *testing.T) {
 func TestFindByTagCountsUsesAND(t *testing.T) {
 	engine := newTestEngine()
 
+	t.Run("single tag matches minimum count", func(t *testing.T) {
+		response := performJSONRequest(
+			engine,
+			http.MethodPost,
+			"/api/v1/query/tags",
+			`{"koala":3}`,
+		)
+
+		if response.Code != http.StatusOK {
+			t.Fatalf("expected status 200, got %d", response.Code)
+		}
+
+		var payload struct {
+			Files []model.MediaFile `json:"files"`
+		}
+
+		if err := json.Unmarshal(response.Body.Bytes(), &payload); err != nil {
+			t.Fatalf("failed to decode response: %v", err)
+		}
+
+		if len(payload.Files) != 1 {
+			t.Fatalf("expected 1 file, got %d", len(payload.Files))
+		}
+	})
+
+	t.Run("single tag below minimum does not match", func(t *testing.T) {
+		response := performJSONRequest(
+			engine,
+			http.MethodPost,
+			"/api/v1/query/tags",
+			`{"koala":4}`,
+		)
+
+		if response.Code != http.StatusOK {
+			t.Fatalf("expected status 200, got %d", response.Code)
+		}
+
+		var payload struct {
+			Files []model.MediaFile `json:"files"`
+		}
+
+		if err := json.Unmarshal(response.Body.Bytes(), &payload); err != nil {
+			t.Fatalf("failed to decode response: %v", err)
+		}
+
+		if len(payload.Files) != 0 {
+			t.Fatalf("expected 0 files, got %d", len(payload.Files))
+		}
+	})
+
 	t.Run("returns file when all conditions match", func(t *testing.T) {
 		response := performJSONRequest(
 			engine,
 			http.MethodPost,
 			"/api/v1/query/tags",
 			`{"koala":3,"magpie":1}`,
+		)
+
+		if response.Code != http.StatusOK {
+			t.Fatalf("expected status 200, got %d", response.Code)
+		}
+
+		var payload struct {
+			Files []model.MediaFile `json:"files"`
+		}
+
+		if err := json.Unmarshal(response.Body.Bytes(), &payload); err != nil {
+			t.Fatalf("failed to decode response: %v", err)
+		}
+
+		if len(payload.Files) != 1 {
+			t.Fatalf("expected 1 file, got %d", len(payload.Files))
+		}
+	})
+
+	t.Run("accepts wrapped tag_counts request", func(t *testing.T) {
+		response := performJSONRequest(
+			engine,
+			http.MethodPost,
+			"/api/v1/query/tags",
+			`{"tag_counts":{"koala":3,"magpie":1}}`,
 		)
 
 		if response.Code != http.StatusOK {
@@ -289,6 +456,36 @@ func TestFindByTagCountsUsesAND(t *testing.T) {
 	})
 }
 
+func TestFindByTagCountsRejectsNegativeMinimumCount(t *testing.T) {
+	engine := newTestEngine()
+
+	response := performJSONRequest(
+		engine,
+		http.MethodPost,
+		"/api/v1/query/tags",
+		`{"koala":-1}`,
+	)
+
+	if response.Code != http.StatusBadRequest {
+		t.Fatalf("expected status 400, got %d", response.Code)
+	}
+}
+
+func TestFindByTagCountsRejectsInvalidType(t *testing.T) {
+	engine := newTestEngine()
+
+	response := performJSONRequest(
+		engine,
+		http.MethodPost,
+		"/api/v1/query/tags",
+		`{"koala":"three"}`,
+	)
+
+	if response.Code != http.StatusBadRequest {
+		t.Fatalf("expected status 400, got %d", response.Code)
+	}
+}
+
 func TestFindOriginalByThumbnailURL(t *testing.T) {
 	engine := newTestEngine()
 
@@ -317,6 +514,64 @@ func TestFindOriginalByThumbnailURL(t *testing.T) {
 			expected,
 			payload["file_url"],
 		)
+	}
+}
+
+func TestLookupOriginalByThumbnailURLAlias(t *testing.T) {
+	engine := newTestEngine()
+
+	request := httptest.NewRequest(
+		http.MethodGet,
+		"/api/v1/observations/lookup?thumbnail_url=s3://wildlens-media/media/thumbnails/koala.jpg",
+		nil,
+	)
+	response := httptest.NewRecorder()
+
+	engine.ServeHTTP(response, request)
+
+	if response.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", response.Code)
+	}
+
+	var payload map[string]string
+
+	if err := json.Unmarshal(response.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+
+	expected := "s3://wildlens-media/media/originals/koala.jpg"
+
+	if payload["file_url"] != expected {
+		t.Fatalf("expected file URL %q, got %q", expected, payload["file_url"])
+	}
+}
+
+func TestLookupOriginalByThumbnailURLAliasIgnoresPresignedQuery(t *testing.T) {
+	engine := newTestEngine()
+
+	request := httptest.NewRequest(
+		http.MethodGet,
+		"/api/v1/observations/lookup?thumbnail_url=https%3A%2F%2Flocal.wildlens.test%2Fwildlens-media%2Fmedia%2Fthumbnails%2Fkoala.jpg%3FX-Amz-Signature%3Dabc",
+		nil,
+	)
+	response := httptest.NewRecorder()
+
+	engine.ServeHTTP(response, request)
+
+	if response.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", response.Code)
+	}
+
+	var payload map[string]string
+
+	if err := json.Unmarshal(response.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+
+	expected := "s3://wildlens-media/media/originals/koala.jpg"
+
+	if payload["file_url"] != expected {
+		t.Fatalf("expected file URL %q, got %q", expected, payload["file_url"])
 	}
 }
 
@@ -392,6 +647,176 @@ func TestFindOriginalByThumbnailURLReturnsNotFound(t *testing.T) {
 
 	if response.Code != http.StatusNotFound {
 		t.Fatalf("expected status 404, got %d", response.Code)
+	}
+}
+
+func TestLookupOriginalByThumbnailURLAliasReturnsNotFound(t *testing.T) {
+	engine := newTestEngine()
+
+	request := httptest.NewRequest(
+		http.MethodGet,
+		"/api/v1/observations/lookup?thumbnail_url=s3://wildlens-media/media/thumbnails/missing.jpg",
+		nil,
+	)
+	response := httptest.NewRecorder()
+
+	engine.ServeHTTP(response, request)
+
+	if response.Code != http.StatusNotFound {
+		t.Fatalf("expected status 404, got %d", response.Code)
+	}
+}
+
+func TestQueryByFileReturnsMatches(t *testing.T) {
+	imageInference := &fakeRouterInferenceClient{
+		result: inference.ImageResult{
+			Tags: []string{"koala", "magpie"},
+		},
+	}
+	engine := newTestEngineWithInference(imageInference)
+
+	response := performMultipartFileRequest(
+		engine,
+		"/api/v1/query/file",
+		"query.jpg",
+		"image/jpeg",
+		[]byte("image bytes"),
+	)
+
+	if response.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", response.Code)
+	}
+
+	var payload model.FileQueryResponse
+
+	if err := json.Unmarshal(response.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+
+	if !imageInference.called {
+		t.Fatal("expected inference client to be called")
+	}
+
+	if len(payload.DetectedTags) != 2 {
+		t.Fatalf("expected 2 detected tags, got %d", len(payload.DetectedTags))
+	}
+
+	if len(payload.Items) != 1 {
+		t.Fatalf("expected 1 item, got %d", len(payload.Items))
+	}
+
+	if payload.Items[0].FileID != "checksum-image-001" {
+		t.Fatalf("unexpected file ID: %s", payload.Items[0].FileID)
+	}
+}
+
+func TestQueryByFileRejectsNonImage(t *testing.T) {
+	engine := newTestEngineWithInference(&fakeRouterInferenceClient{})
+
+	response := performMultipartFileRequest(
+		engine,
+		"/api/v1/query/file",
+		"query.txt",
+		"text/plain",
+		[]byte("not an image"),
+	)
+
+	if response.Code != http.StatusBadRequest {
+		t.Fatalf("expected status 400, got %d", response.Code)
+	}
+}
+
+func TestQueryByFileRejectsOversizedFile(t *testing.T) {
+	engine := newTestEngineWithInference(&fakeRouterInferenceClient{})
+
+	response := performMultipartFileRequest(
+		engine,
+		"/api/v1/query/file",
+		"query.jpg",
+		"image/jpeg",
+		bytes.Repeat([]byte("x"), 10*1024*1024+1),
+	)
+
+	if response.Code != http.StatusBadRequest {
+		t.Fatalf("expected status 400, got %d", response.Code)
+	}
+}
+
+func TestQueryByFileReturnsEmptyWhenNoTagsDetected(t *testing.T) {
+	engine := newTestEngineWithInference(&fakeRouterInferenceClient{})
+
+	response := performMultipartFileRequest(
+		engine,
+		"/api/v1/query/file",
+		"query.jpg",
+		"image/jpeg",
+		[]byte("image bytes"),
+	)
+
+	if response.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", response.Code)
+	}
+
+	var payload model.FileQueryResponse
+
+	if err := json.Unmarshal(response.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+
+	if len(payload.Items) != 0 {
+		t.Fatalf("expected 0 items, got %d", len(payload.Items))
+	}
+}
+
+func TestQueryByFileReturnsBadGatewayForInferenceError(t *testing.T) {
+	engine := newTestEngineWithInference(&fakeRouterInferenceClient{
+		err: errors.New("inference failed"),
+	})
+
+	response := performMultipartFileRequest(
+		engine,
+		"/api/v1/query/file",
+		"query.jpg",
+		"image/jpeg",
+		[]byte("image bytes"),
+	)
+
+	if response.Code != http.StatusBadGateway {
+		t.Fatalf("expected status 502, got %d", response.Code)
+	}
+}
+
+func TestQueryByFileAliasMatchesCanonicalRoute(t *testing.T) {
+	imageInference := &fakeRouterInferenceClient{
+		result: inference.ImageResult{
+			TagCounts: map[string]int{
+				"koala":  3,
+				"magpie": 1,
+			},
+		},
+	}
+	engine := newTestEngineWithInference(imageInference)
+
+	response := performMultipartFileRequest(
+		engine,
+		"/api/v1/observations/search-by-file",
+		"query.png",
+		"image/png",
+		[]byte("image bytes"),
+	)
+
+	if response.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", response.Code)
+	}
+
+	var payload model.FileQueryResponse
+
+	if err := json.Unmarshal(response.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+
+	if len(payload.Items) != 1 {
+		t.Fatalf("expected 1 item, got %d", len(payload.Items))
 	}
 }
 

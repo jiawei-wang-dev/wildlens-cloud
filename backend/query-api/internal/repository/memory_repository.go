@@ -72,7 +72,7 @@ func (r *MemoryRepository) FindOriginalByThumbnailURL(
 	thumbnailURL = strings.TrimSpace(thumbnailURL)
 
 	for _, file := range r.files {
-		if file.ThumbnailURL == thumbnailURL {
+		if matchesThumbnailLookup(file, thumbnailURL) {
 			return file.FileURL, nil
 		}
 	}
