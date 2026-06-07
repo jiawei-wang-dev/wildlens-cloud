@@ -141,6 +141,21 @@
                 </template>
               </el-table-column>
             </el-table>
+            <div class="pagination-footer" style="margin-top: 15px; display: flex; justify-content: space-between; align-items: center;">
+              <span class="placeholder-text" style="font-size: 13px; color: #909399;">
+                {{ nextToken ? 'More wildlife historical captures pending authorization...' : 'End of synchronization ledger reached.' }}
+              </span>
+              <div class="page-buttons">
+                <button 
+                  class="el-button el-button--primary" 
+                  :disabled="!hasMore" 
+                  @click="handleNextPage"
+                  style="padding: 8px 15px; font-size: 12px; border-radius: 4px;"
+                >
+                  Next Page
+                </button>
+              </div>
+            </div>
           </el-card>
         </el-col>
       </el-row>
@@ -244,6 +259,15 @@ const fetchObservations = async () => {
 const handleSearch = () => {
   nextToken.value = ''
   fetchObservations()
+}
+
+/**
+ * Evaluates pagination state and advances the grid registry to the subsequent cursor block
+ */
+const handleNextPage = () => {
+  if (hasMore.value && nextToken.value) {
+    fetchObservations()
+  }
 }
 
 /**
