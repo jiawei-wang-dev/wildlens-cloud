@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 )
 
 type roundTripFunc func(*http.Request) (*http.Response, error)
@@ -120,5 +121,16 @@ func TestHTTPClientInferImageReturnsStatusError(t *testing.T) {
 	)
 	if err == nil {
 		t.Fatal("expected inference status error")
+	}
+}
+
+func TestHTTPClientDefaultTimeoutIsLongEnoughForColdStarts(t *testing.T) {
+	client := NewHTTPClient("https://inference.test/query", nil)
+
+	if client.httpClient.Timeout != 120*time.Second {
+		t.Fatalf(
+			"expected 120s timeout, got %s",
+			client.httpClient.Timeout,
+		)
 	}
 }
