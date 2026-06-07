@@ -7,7 +7,6 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/jiawei-wang-dev/wildlens-cloud/backend/query-api/internal/model"
 )
@@ -70,7 +69,7 @@ func paginateObservations(
 
 	items := filteredFiles[offset:end]
 
-	normaliseObservationCreatedAt(items)
+	model.NormalizeMediaFilesTimes(items)
 
 	hasMore := end < len(filteredFiles)
 
@@ -162,8 +161,8 @@ func compareObservationCreatedAt(
 	left model.MediaFile,
 	right model.MediaFile,
 ) bool {
-	leftTime, leftOK := parseObservationCreatedAt(left.CreatedAt)
-	rightTime, rightOK := parseObservationCreatedAt(right.CreatedAt)
+	leftTime, leftOK := model.ParseTimestampUTC(left.CreatedAt)
+	rightTime, rightOK := model.ParseTimestampUTC(right.CreatedAt)
 
 	if leftOK && rightOK {
 		if !leftTime.Equal(rightTime) {
@@ -178,42 +177,6 @@ func compareObservationCreatedAt(
 	}
 
 	return left.FileID < right.FileID
-}
-
-func normaliseObservationCreatedAt(files []model.MediaFile) {
-	for index := range files {
-		createdAt, ok := parseObservationCreatedAt(files[index].CreatedAt)
-
-		if ok {
-			files[index].CreatedAt = createdAt.UTC().Format(time.RFC3339)
-		}
-	}
-}
-
-func parseObservationCreatedAt(value string) (time.Time, bool) {
-	value = strings.TrimSpace(value)
-
-	if value == "" {
-		return time.Time{}, false
-	}
-
-	layouts := []string{
-		time.RFC3339,
-		time.RFC3339Nano,
-		"2006-01-02T15:04:05",
-		"2006-01-02T15:04:05.999999999",
-		"2006-01-02 15:04:05",
-	}
-
-	for _, layout := range layouts {
-		parsed, err := time.Parse(layout, value)
-
-		if err == nil {
-			return parsed.UTC(), true
-		}
-	}
-
-	return time.Time{}, false
 }
 
 func encodeNextToken(offset int) string {
