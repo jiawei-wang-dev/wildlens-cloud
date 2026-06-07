@@ -83,8 +83,8 @@
               <el-form-item label="Species">
                 <el-input v-model="searchQuery.species" placeholder="e.g., Alectura_lathami" clearable />
               </el-form-item>
-              <el-form-item label="Tag">
-                <el-input v-model="searchQuery.tag" placeholder="Filter by custom tag" clearable />
+              <el-form-item label="Tags">
+                <el-input v-model="searchQuery.tag" placeholder="e.g., wild cute (separated by spaces)" style="width: 260px;" clearable />
               </el-form-item>
               <el-form-item>
                 <el-button type="primary" @click="handleSearch">Search</el-button>
@@ -92,6 +92,22 @@
               </el-form-item>
             </el-form>
 
+            <div style="margin-top: 15px; display: flex; gap: 15px; align-items: center; background: #fafafa; padding: 12px; border-radius: 4px; border: 1px dashed #e0e0e0;">
+              <div style="display: flex; align-items: center; gap: 6px;">
+                <span style="font-size: 12px; color: #606266;">Advanced JSON:</span>
+                <el-input v-model="jsonTagQueryStr" placeholder='e.g., {"koala":3}' size="small" style="width: 150px;" clearable />
+                <el-button type="primary" size="small" @click="handleJsonTagQuery">JSON Qry</el-button>
+              </div>
+              <div style="display: flex; align-items: center; gap: 6px; border-left: 1px solid #dcdfe6; padding-left: 15px;">
+                <el-input v-model="reverseQueryUrl" placeholder="Paste thumbnail URL..." size="small" style="width: 180px;" clearable />
+                <el-button type="warning" size="small" @click="handleThumbnailLookup">Reverse Lookup</el-button>
+              </div>
+              <div style="border-left: 1px solid #dcdfe6; padding-left: 15px;">
+                <el-upload action="#" :auto-upload="true" :http-request="handleImageBasedSearch" :show-file-list="false" accept="image/*">
+                  <el-button type="success" size="small">Query By Image File</el-button>
+                </el-upload>
+              </div>
+            </div>
             <el-divider style="margin: 15px 0;" />
             
             <el-table :data="observationList" v-loading="isTableLoading" style="width: 100%" border max-height="500" @selection-change="handleSelectionChange">
@@ -100,7 +116,7 @@
                 <template #default="scope">
                   <el-image 
                     style="width: 50px; height: 50px; border-radius: 4px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);"
-                    :src="scope.row.thumbnail_display_url" 
+                    :src="scope.row.thumbnail_display_url || scope.row.thumbnail_url" 
                     :preview-src-list="[scope.row.file_url]"
                     preview-teleported
                     fit="cover"
@@ -127,7 +143,11 @@
                   </el-tag>
                 </template>
               </el-table-column>
-              <el-table-column prop="created_at" label="Ingestion Date" width="160" />
+              <el-table-column label="Ingestion Date" width="190">
+                <template #default="scope">
+                  {{ formatMelbourneTime(scope.row.created_at) }}
+                </template>
+              </el-table-column>
               <el-table-column label="Actions" width="120" align="center">
                 <template #default="scope">
                   <el-link 
@@ -191,6 +211,9 @@ const searchQuery = ref({
   tag: ''
 })
 
+const jsonTagQueryStr = ref('')
+const reverseQueryUrl = ref('')
+
 // Pagination tokens
 const nextToken = ref('')
 const hasMore = ref(false)
@@ -216,7 +239,10 @@ const fetchObservations = async () => {
       queryParams.push(`species=${encodeURIComponent(searchQuery.value.species.trim())}`)
     }
     if (searchQuery.value.tag.trim()) {
-      queryParams.push(`tag=${encodeURIComponent(searchQuery.value.tag.trim())}`)
+      const tags = searchQuery.value.tag.trim().split(/\s+/).filter(Boolean)
+      tags.forEach(t => {
+        queryParams.push(`tag=${encodeURIComponent(t)}`)
+      })
     }
     
     // Enforce API default pagination limit constraint
@@ -275,10 +301,82 @@ const handleNextPage = () => {
  */
 const resetSearch = () => {
   searchQuery.value = { species: '', tag: '' }
+  jsonTagQueryStr.value = ''
+  reverseQueryUrl.value = ''
   nextToken.value = ''
   fetchObservations()
 }
 
+/**
+ * 1. Advanced Tag Query with Count Constraints (POST /api/v1/query/tags)
+ * Evaluates composite JSON objects for minimum fauna element count distribution filters.
+ */
+const handleJsonTagQuery = async () => {
+  if (!jsonTagQueryStr.value.trim()) return ElMessage.warning('Please enter a JSON object first.')
+  try {
+    isTableLoading.value = true
+    const token = localStorage.getItem('id_token')
+    const parsedJson = JSON.parse(jsonTagQueryStr.value.trim())
+
+    const response = await axios.post(`${QUERY_BASE_URL}/api/v1/query/tags`, parsedJson, {
+      headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' }
+    })
+    if (response.data) {
+      observationList.value = response.data.files || []
+      nextToken.value = ''
+      hasMore.value = false
+    }
+  } catch (e) {
+    console.error('Advanced JSON query error:', e)
+    ElMessage.error('Invalid JSON format or API error.')
+    observationList.value = []
+    nextToken.value = ''
+    hasMore.value = false
+  } finally { isTableLoading.value = false }
+}
+
+/**
+ * 2. Reverse Thumbnail Mapping Lookup (GET /api/v1/observations/lookup?thumbnail_url=...)
+ * Resolves full-size source media locations via an explicit thumbnail resource pointer tracking request.
+ */
+const handleThumbnailLookup = async () => {
+  if (!reverseQueryUrl.value.trim()) return ElMessage.warning('Please enter a URL first.')
+  try {
+    isTableLoading.value = true
+    const token = localStorage.getItem('id_token')
+    const response = await axios.get(`${QUERY_BASE_URL}/api/v1/observations/lookup?thumbnail_url=${encodeURIComponent(reverseQueryUrl.value.trim())}`, {
+      headers: { 'Authorization': `Bearer ${token}` }
+    })
+    if (response.data && response.data.file_url) {
+      ElMessageBox.alert(`<strong>Full Image Asset Found:</strong><br><a href="${response.data.file_url}" target="_blank">${response.data.file_url}</a>`, 'Lookup Success', { confirmButtonText: 'Open', dangerouslyUseHTMLString: true, type: 'success' }).then(() => {
+        window.open(response.data.file_url, '_blank')
+      })
+    } else { ElMessage.info('No match found.') }
+  } catch (e) { ElMessage.error('Lookup rejected by Gateway.') }
+  finally { isTableLoading.value = false }
+}
+
+/**
+ * 3. Transient Content Search via Image Upload (POST /api/v1/observations/search-by-file)
+ * Dispatches a temporary media binary stream for inference evaluation to query stored assets without storage persistence.
+ */
+const handleImageBasedSearch = async (options) => {
+  try {
+    isTableLoading.value = true
+    const token = localStorage.getItem('id_token')
+    const formData = new FormData()
+    formData.append('file', options.file)
+
+    const response = await axios.post(`${QUERY_BASE_URL}/api/v1/observations/search-by-file`, formData, {
+      headers: { 'Authorization': `Bearer ${token}`}
+    })
+    if (response.data) {
+      observationList.value = response.data.items || response.data || []
+      ElMessage.success('Transient query search finished!')
+    }
+  } catch (e) { ElMessage.error('Image search aborted.') }
+  finally { isTableLoading.value = false }
+}
 
 // Fetch data when layout component mounts in viewport
 onMounted(() => {
@@ -478,6 +576,31 @@ const handleLogout = () => {
   localStorage.removeItem('id_token')
   ElMessage.info('Session invalidated successfully.')
   router.push('/login')
+}
+
+/**
+ * Formats an ISO/UTC RFC3339 timestamp string into localized Australia/Melbourne time.
+ * Automatically accounts for daylight saving time (AEST/AEDT) offsets.
+ */
+const formatMelbourneTime = (value) => {
+  if (!value) return ''
+
+  const date = new Date(value)
+
+  if (Number.isNaN(date.getTime())) {
+    return value
+  }
+
+  return new Intl.DateTimeFormat('en-AU', {
+    timeZone: 'Australia/Melbourne',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false
+  }).format(date)
 }
 </script>
 
