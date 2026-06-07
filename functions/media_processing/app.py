@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 from pathlib import Path
+import shutil
 import tempfile
 from typing import Dict, Literal, Optional
 
-from fastapi import FastAPI
+from fastapi import FastAPI, File, UploadFile
 from pydantic import BaseModel, model_validator
 import requests
 
@@ -63,6 +64,15 @@ class InferenceResponse(BaseModel):
     error: Optional[str] = None
 
 
+class StatelessInferenceResponse(BaseModel):
+    tags: list[str]
+    tag_counts: Dict[str, int]
+    primary_species: Optional[str]
+    model_version: Optional[str]
+    status: str
+    error: Optional[str] = None
+
+
 app = FastAPI(title="WildLens Media Inference Service", version="0.1.0")
 
 
@@ -87,6 +97,40 @@ def _upload_thumbnail(thumbnail_path: Path, upload_url: str) -> None:
 @app.get("/health")
 def health_check() -> dict[str, str]:
     return {"status": "ok"}
+
+
+@app.post("/infer-file", response_model=StatelessInferenceResponse)
+def infer_uploaded_file(file: UploadFile = File(...)) -> StatelessInferenceResponse:
+    """Run stateless detector inference for a temporary query image upload."""
+    try:
+        with tempfile.TemporaryDirectory() as temporary_dir:
+            filename = Path(file.filename or "query-image").name or "query-image"
+            temp_file_path = Path(temporary_dir) / filename
+            file.file.seek(0)
+            with temp_file_path.open("wb") as output_file:
+                shutil.copyfileobj(file.file, output_file)
+
+            raw_detections = detect_image(str(temp_file_path))
+            tag_counts = aggregate_tag_counts(raw_detections)
+            primary_species = choose_primary_species(tag_counts)
+
+        return StatelessInferenceResponse(
+            tags=sorted(tag_counts),
+            tag_counts=tag_counts,
+            primary_species=primary_species,
+            model_version=get_model_version(),
+            status="ready",
+            error=None,
+        )
+    except Exception as exc:
+        return StatelessInferenceResponse(
+            tags=[],
+            tag_counts={},
+            primary_species=None,
+            model_version=get_model_version(),
+            status="failed",
+            error=f"query file inference failed: {exc}",
+        )
 
 
 @app.post("/infer", response_model=InferenceResponse)
