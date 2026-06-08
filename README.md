@@ -10,10 +10,10 @@ A serverless multi-cloud platform that allows users to upload, tag, and search w
 ## Team Members
 | Name | Student ID | Role |
 |------|-----------|------|
-| [Member A] | [ID] | AWS Infrastructure & Security |
-| [Member B] | [ID] | Media Processing & Serverless |
-| [Member C] | [ID] | Query API & Data Management |
-| [Member D] | [ID] | Frontend UI |
+| Yichao Zhu | 35636572 | AWS Infrastructure & Security |
+| Jackson Xia | 35817135 | Media Processing & Serverless |
+| Jiawei Wang | 35304723 | Query API & Data Management |
+| Boting Liu | 35201061 | Frontend UI |
 
 ## Features
 - User authentication and authorisation via AWS Cognito
