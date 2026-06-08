@@ -22,4 +22,26 @@ type MediaRepository interface {
 		ctx context.Context,
 		thumbnailURL string,
 	) (string, error)
+
+	FindByURLs(
+		ctx context.Context,
+		urls []string,
+	) ([]model.MediaFile, error)
+
+	UpdateTags(
+		ctx context.Context,
+		urls []string,
+		tags []string,
+		operation int,
+	) ([]model.MediaFile, error)
+
+	DeleteFiles(
+		ctx context.Context,
+		fileIDs []string,
+	) ([]model.MediaFile, error)
+
+	ListObservations(
+		ctx context.Context,
+		options ObservationListOptions,
+	) (ObservationPage, error)
 }

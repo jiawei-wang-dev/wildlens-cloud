@@ -1,0 +1,10 @@
+pytest
+fastapi
+python-multipart
+httpx
+pydantic
+uvicorn[standard]
+pillow
+requests
+opencv-python-headless
+google-cloud-storage

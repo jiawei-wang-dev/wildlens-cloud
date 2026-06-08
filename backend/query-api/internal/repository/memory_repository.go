@@ -45,18 +45,7 @@ func (r *MemoryRepository) FindByTagCounts(
 	results := make([]model.MediaFile, 0)
 
 	for _, file := range r.files {
-		matched := true
-
-		for tag, minimumCount := range required {
-			tag = strings.ToLower(strings.TrimSpace(tag))
-
-			if file.TagCounts[tag] < minimumCount {
-				matched = false
-				break
-			}
-		}
-
-		if matched {
+		if matchesTagCountMinimums(file, required) {
 			results = append(results, file)
 		}
 	}
@@ -72,10 +61,83 @@ func (r *MemoryRepository) FindOriginalByThumbnailURL(
 	thumbnailURL = strings.TrimSpace(thumbnailURL)
 
 	for _, file := range r.files {
-		if file.ThumbnailURL == thumbnailURL {
+		if matchesThumbnailLookup(file, thumbnailURL) {
 			return file.FileURL, nil
 		}
 	}
 
 	return "", ErrMediaNotFound
+}
+
+// FindByURLs returns media metadata matching original or thumbnail URLs.
+func (r *MemoryRepository) FindByURLs(
+	_ context.Context,
+	urls []string,
+) ([]model.MediaFile, error) {
+	return findMediaFilesByURLs(r.files, urls), nil
+}
+
+// UpdateTags adds or removes tags for media files matching the supplied URLs.
+func (r *MemoryRepository) UpdateTags(
+	_ context.Context,
+	urls []string,
+	tags []string,
+	operation int,
+) ([]model.MediaFile, error) {
+	if err := validateTagOperation(operation); err != nil {
+		return nil, err
+	}
+
+	targetURLs := newURLSet(urls)
+	updatedFiles := make([]model.MediaFile, 0)
+
+	for index := range r.files {
+		if !matchesMediaURL(r.files[index], targetURLs) {
+			continue
+		}
+
+		if err := applyTagUpdate(
+			&r.files[index],
+			tags,
+			operation,
+		); err != nil {
+			return nil, err
+		}
+
+		updatedFiles = append(updatedFiles, r.files[index])
+	}
+
+	return updatedFiles, nil
+}
+
+// DeleteFiles removes media records matching the supplied file IDs.
+func (r *MemoryRepository) DeleteFiles(
+	_ context.Context,
+	fileIDs []string,
+) ([]model.MediaFile, error) {
+	targetIDs := newFileIDSet(fileIDs)
+
+	deletedFiles := make([]model.MediaFile, 0)
+	remainingFiles := make([]model.MediaFile, 0, len(r.files))
+
+	for _, file := range r.files {
+		if _, exists := targetIDs[file.FileID]; exists {
+			deletedFiles = append(deletedFiles, file)
+			continue
+		}
+
+		remainingFiles = append(remainingFiles, file)
+	}
+
+	r.files = remainingFiles
+
+	return deletedFiles, nil
+}
+
+// ListObservations returns filtered and paginated media records.
+func (r *MemoryRepository) ListObservations(
+	_ context.Context,
+	options ObservationListOptions,
+) (ObservationPage, error) {
+	return paginateObservations(r.files, options)
 }

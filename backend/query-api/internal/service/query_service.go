@@ -3,26 +3,101 @@ package service
 import (
 	"context"
 	"errors"
+	"fmt"
+	"sort"
 	"strings"
+
+	"github.com/jiawei-wang-dev/wildlens-cloud/backend/query-api/internal/inference"
+	"github.com/jiawei-wang-dev/wildlens-cloud/backend/query-api/internal/storage"
 
 	"github.com/jiawei-wang-dev/wildlens-cloud/backend/query-api/internal/model"
 	"github.com/jiawei-wang-dev/wildlens-cloud/backend/query-api/internal/repository"
 )
 
 var (
-	ErrSpeciesRequired      = errors.New("species is required")
-	ErrTagsRequired         = errors.New("at least one tag is required")
-	ErrInvalidMinimumCount  = errors.New("minimum tag count must be greater than zero")
-	ErrThumbnailURLRequired = errors.New("thumbnail_url is required")
+	ErrSpeciesRequired         = errors.New("species is required")
+	ErrTagsRequired            = errors.New("at least one tag is required")
+	ErrInvalidMinimumCount     = errors.New("minimum tag count must be greater than zero")
+	ErrThumbnailURLRequired    = errors.New("thumbnail_url is required")
+	ErrURLsRequired            = errors.New("at least one URL is required")
+	ErrTagOperationRequired    = errors.New("operation is required")
+	ErrQueryFileRequired       = errors.New("query file is required")
+	ErrUnsupportedQueryFile    = errors.New("query file must be image/jpeg or image/png")
+	ErrInvalidObservationLimit = errors.New(
+		"limit must be between 1 and 50",
+	)
 )
 
 // QueryService contains media query business logic.
 type QueryService struct {
-	repo repository.MediaRepository
+	repo          repository.MediaRepository
+	urlSigner     storage.MediaURLSigner
+	objectDeleter storage.MediaObjectDeleter
+	inferClient   inference.ImageClient
 }
 
-func NewQueryService(repo repository.MediaRepository) *QueryService {
-	return &QueryService{repo: repo}
+// NewQueryService creates a query service with a local URL signer.
+func NewQueryService(
+	repo repository.MediaRepository,
+) *QueryService {
+	return NewQueryServiceWithURLSigner(
+		repo,
+		storage.NewStaticURLSigner(""),
+	)
+}
+
+// NewQueryServiceWithURLSigner creates a query service with a custom signer.
+func NewQueryServiceWithURLSigner(
+	repo repository.MediaRepository,
+	urlSigner storage.MediaURLSigner,
+) *QueryService {
+	return NewQueryServiceWithDependencies(
+		repo,
+		urlSigner,
+		storage.NewNoopObjectDeleter(),
+	)
+}
+
+// NewQueryServiceWithDependencies creates a query service with all dependencies.
+func NewQueryServiceWithDependencies(
+	repo repository.MediaRepository,
+	urlSigner storage.MediaURLSigner,
+	objectDeleter storage.MediaObjectDeleter,
+) *QueryService {
+	if urlSigner == nil {
+		urlSigner = storage.NewStaticURLSigner("")
+	}
+
+	if objectDeleter == nil {
+		objectDeleter = storage.NewNoopObjectDeleter()
+	}
+
+	return &QueryService{
+		repo:          repo,
+		urlSigner:     urlSigner,
+		objectDeleter: objectDeleter,
+		inferClient:   inference.NewNoopClient(),
+	}
+}
+
+// NewQueryServiceWithAllDependencies creates a query service with every dependency.
+func NewQueryServiceWithAllDependencies(
+	repo repository.MediaRepository,
+	urlSigner storage.MediaURLSigner,
+	objectDeleter storage.MediaObjectDeleter,
+	inferClient inference.ImageClient,
+) *QueryService {
+	service := NewQueryServiceWithDependencies(
+		repo,
+		urlSigner,
+		objectDeleter,
+	)
+
+	if inferClient != nil {
+		service.inferClient = inferClient
+	}
+
+	return service
 }
 
 func (s *QueryService) FindBySpecies(
@@ -35,24 +110,48 @@ func (s *QueryService) FindBySpecies(
 		return nil, ErrSpeciesRequired
 	}
 
-	return s.repo.FindBySpecies(ctx, species)
+	files, err := s.repo.FindBySpecies(ctx, species)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := s.addDisplayURLs(ctx, files); err != nil {
+		return nil, err
+	}
+
+	model.NormalizeMediaFilesTimes(files)
+
+	return files, nil
 }
 
 func (s *QueryService) FindByTagCounts(
 	ctx context.Context,
 	required map[string]int,
 ) ([]model.MediaFile, error) {
-	if len(required) == 0 {
+	cleanRequired := cleanTagCounts(required)
+
+	if len(cleanRequired) == 0 {
 		return nil, ErrTagsRequired
 	}
 
-	for _, count := range required {
+	for _, count := range cleanRequired {
 		if count <= 0 {
 			return nil, ErrInvalidMinimumCount
 		}
 	}
 
-	return s.repo.FindByTagCounts(ctx, required)
+	files, err := s.repo.FindByTagCounts(ctx, cleanRequired)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := s.addDisplayURLs(ctx, files); err != nil {
+		return nil, err
+	}
+
+	model.NormalizeMediaFilesTimes(files)
+
+	return files, nil
 }
 
 func (s *QueryService) FindOriginalByThumbnailURL(
@@ -66,4 +165,335 @@ func (s *QueryService) FindOriginalByThumbnailURL(
 	}
 
 	return s.repo.FindOriginalByThumbnailURL(ctx, thumbnailURL)
+}
+
+func (s *QueryService) QueryByFile(
+	ctx context.Context,
+	filename string,
+	contentType string,
+	data []byte,
+) (model.FileQueryResponse, error) {
+	filename = strings.TrimSpace(filename)
+	contentType = strings.TrimSpace(contentType)
+
+	if len(data) == 0 {
+		return model.FileQueryResponse{}, ErrQueryFileRequired
+	}
+
+	if contentType != "image/jpeg" && contentType != "image/png" {
+		return model.FileQueryResponse{}, ErrUnsupportedQueryFile
+	}
+
+	result, err := s.inferClient.InferImage(
+		ctx,
+		filename,
+		contentType,
+		data,
+	)
+	if err != nil {
+		return model.FileQueryResponse{}, err
+	}
+
+	required := cleanTagCounts(result.TagCounts)
+
+	if len(required) == 0 {
+		required = tagCountsFromTags(result.Tags)
+	}
+
+	detectedTags := tagsFromTagCounts(required)
+
+	if len(required) == 0 {
+		return model.FileQueryResponse{
+			DetectedTags: detectedTags,
+			Items:        []model.MediaFile{},
+		}, nil
+	}
+
+	files, err := s.FindByTagCounts(ctx, required)
+	if err != nil {
+		return model.FileQueryResponse{}, err
+	}
+
+	if err := s.addDisplayURLs(ctx, files); err != nil {
+		return model.FileQueryResponse{}, err
+	}
+
+	model.NormalizeMediaFilesTimes(files)
+
+	return model.FileQueryResponse{
+		DetectedTags: detectedTags,
+		Items:        files,
+	}, nil
+}
+
+// UpdateTags validates and applies a bulk tag update.
+func (s *QueryService) UpdateTags(
+	ctx context.Context,
+	urls []string,
+	tags []string,
+	operation *int,
+) ([]model.MediaFile, error) {
+	cleanURLs := make([]string, 0, len(urls))
+
+	for _, url := range urls {
+		url = strings.TrimSpace(url)
+
+		if url != "" {
+			cleanURLs = append(cleanURLs, url)
+		}
+	}
+
+	if len(cleanURLs) == 0 {
+		return nil, ErrURLsRequired
+	}
+
+	cleanTags := make([]string, 0, len(tags))
+
+	for _, tag := range tags {
+		tag = strings.TrimSpace(tag)
+
+		if tag != "" {
+			cleanTags = append(cleanTags, tag)
+		}
+	}
+
+	if len(cleanTags) == 0 {
+		return nil, ErrTagsRequired
+	}
+
+	if operation == nil {
+		return nil, ErrTagOperationRequired
+	}
+
+	if *operation != repository.TagOperationRemove &&
+		*operation != repository.TagOperationAdd {
+		return nil, repository.ErrInvalidTagOperation
+	}
+
+	files, err := s.repo.UpdateTags(
+		ctx,
+		cleanURLs,
+		cleanTags,
+		*operation,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	model.NormalizeMediaFilesTimes(files)
+
+	return files, nil
+}
+
+// DeleteFiles validates URLs and removes matched media records.
+func (s *QueryService) DeleteFiles(
+	ctx context.Context,
+	urls []string,
+) ([]string, error) {
+	cleanURLs := make([]string, 0, len(urls))
+	seenURLs := make(map[string]struct{})
+
+	for _, url := range urls {
+		url = strings.TrimSpace(url)
+
+		if url == "" {
+			continue
+		}
+
+		if _, exists := seenURLs[url]; exists {
+			continue
+		}
+
+		seenURLs[url] = struct{}{}
+		cleanURLs = append(cleanURLs, url)
+	}
+
+	if len(cleanURLs) == 0 {
+		return nil, ErrURLsRequired
+	}
+
+	files, err := s.repo.FindByURLs(ctx, cleanURLs)
+	if err != nil {
+		return nil, err
+	}
+
+	if len(files) == 0 {
+		return []string{}, nil
+	}
+
+	if err := s.objectDeleter.DeleteMediaObjects(ctx, files); err != nil {
+		return nil, err
+	}
+
+	fileIDs := make([]string, 0, len(files))
+
+	for _, file := range files {
+		fileID := strings.TrimSpace(file.FileID)
+
+		if fileID != "" {
+			fileIDs = append(fileIDs, fileID)
+		}
+	}
+
+	deletedFiles, err := s.repo.DeleteFiles(ctx, fileIDs)
+	if err != nil {
+		return nil, err
+	}
+
+	deletedFileIDs := make([]string, 0, len(deletedFiles))
+
+	for _, file := range deletedFiles {
+		deletedFileIDs = append(deletedFileIDs, file.FileID)
+	}
+
+	return deletedFileIDs, nil
+}
+
+// ListObservations validates filters and adds temporary display URLs.
+func (s *QueryService) ListObservations(
+	ctx context.Context,
+	limit int,
+	nextToken string,
+	species string,
+	tags []string,
+	fileType string,
+	status string,
+) (repository.ObservationPage, error) {
+	if limit < 1 || limit > repository.MaxObservationLimit {
+		return repository.ObservationPage{},
+			ErrInvalidObservationLimit
+	}
+
+	page, err := s.repo.ListObservations(
+		ctx,
+		repository.ObservationListOptions{
+			Limit:     limit,
+			NextToken: strings.TrimSpace(nextToken),
+			Species:   strings.TrimSpace(species),
+			Tags:      cleanObservationTags(tags),
+			FileType:  strings.TrimSpace(fileType),
+			Status:    strings.TrimSpace(status),
+		},
+	)
+	if err != nil {
+		return repository.ObservationPage{}, err
+	}
+
+	if err := s.addDisplayURLs(ctx, page.Items); err != nil {
+		return repository.ObservationPage{}, err
+	}
+
+	model.NormalizeMediaFilesTimes(page.Items)
+
+	return page, nil
+}
+
+func (s *QueryService) addDisplayURLs(
+	ctx context.Context,
+	files []model.MediaFile,
+) error {
+	for index := range files {
+		file := &files[index]
+		var err error
+
+		if strings.TrimSpace(file.ObjectPath) != "" {
+			file.FileDownloadURL, err =
+				s.urlSigner.SignGetObjectURL(
+					ctx,
+					file.Bucket,
+					file.ObjectPath,
+				)
+			if err != nil {
+				return fmt.Errorf(
+					"sign file download URL: %w",
+					err,
+				)
+			}
+		}
+
+		if strings.TrimSpace(file.ThumbnailObjectPath) != "" {
+			file.ThumbnailDisplayURL, err =
+				s.urlSigner.SignGetObjectURL(
+					ctx,
+					file.Bucket,
+					file.ThumbnailObjectPath,
+				)
+			if err != nil {
+				return fmt.Errorf(
+					"sign thumbnail display URL: %w",
+					err,
+				)
+			}
+		}
+	}
+
+	return nil
+}
+
+func cleanObservationTags(tags []string) []string {
+	results := make([]string, 0, len(tags))
+	seen := make(map[string]struct{})
+
+	for _, tag := range tags {
+		tag = strings.ToLower(strings.TrimSpace(tag))
+
+		if tag == "" {
+			continue
+		}
+
+		if _, exists := seen[tag]; exists {
+			continue
+		}
+
+		seen[tag] = struct{}{}
+		results = append(results, tag)
+	}
+
+	return results
+}
+
+func cleanTagCounts(tagCounts map[string]int) map[string]int {
+	results := make(map[string]int)
+
+	for tag, count := range tagCounts {
+		tag = strings.ToLower(strings.TrimSpace(tag))
+
+		if tag == "" {
+			continue
+		}
+
+		results[tag] = count
+	}
+
+	return results
+}
+
+func tagCountsFromTags(tags []string) map[string]int {
+	results := make(map[string]int)
+
+	for _, tag := range tags {
+		tag = strings.ToLower(strings.TrimSpace(tag))
+
+		if tag == "" {
+			continue
+		}
+
+		if _, exists := results[tag]; !exists {
+			results[tag] = 1
+		}
+	}
+
+	return results
+}
+
+func tagsFromTagCounts(tagCounts map[string]int) []string {
+	results := make([]string, 0, len(tagCounts))
+
+	for tag := range tagCounts {
+		results = append(results, tag)
+	}
+
+	sort.Strings(results)
+
+	return results
 }
