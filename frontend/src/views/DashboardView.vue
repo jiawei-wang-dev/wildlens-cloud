@@ -15,7 +15,7 @@
           <el-card class="box-card upload-card">
             <template #header>
               <div class="card-header">
-                <span class="title-text">Wildlife Observation Ingestion</span>
+                <span class="title-text">Upload Wildlife Media</span>
               </div>
             </template>
             
@@ -48,7 +48,7 @@
           
           <el-card class="box-card governance-card" style="margin-top: 20px;">
             <template #header>
-              <div class="card-header"><span>Data Governance & Batch Management</span></div>
+              <div class="card-header"><span>Batch Management & Alerts</span></div>
             </template>
             <div class="governance-section">
               <h4 class="section-title">Batch Record Actions</h4>
@@ -76,7 +76,7 @@
         <el-col :span="16">
           <el-card class="box-card search-card">
             <template #header>
-              <div class="card-header"><span>Logical Search & Observation Grid</span></div>
+              <div class="card-header"><span>Search & Gallery</span></div>
             </template>
 
             <el-form :inline="true" :model="searchQuery" size="default" style="margin-bottom: -10px;">
@@ -151,7 +151,7 @@
               <el-table-column label="Actions" width="120" align="center">
                 <template #default="scope">
                   <el-link 
-                    :href="scope.row.file_download_url" 
+                    :href="scope.row.file_download_url || scope.row.file_url" 
                     target="_blank" 
                     type="primary" 
                     underline="never"
