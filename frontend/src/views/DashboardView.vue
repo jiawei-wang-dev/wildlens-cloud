@@ -95,7 +95,7 @@
             <div style="margin-top: 15px; display: flex; gap: 15px; align-items: center; background: #fafafa; padding: 12px; border-radius: 4px; border: 1px dashed #e0e0e0;">
               <div style="display: flex; align-items: center; gap: 6px;">
                 <span style="font-size: 12px; color: #606266;">Advanced JSON:</span>
-                <el-input v-model="jsonTagQueryStr" placeholder='e.g., {"koala":3}' size="small" style="width: 150px;" clearable />
+                <el-input v-model="jsonTagQueryStr" placeholder='e.g., {"Cattle":3}' size="small" style="width: 150px;" clearable />
                 <el-button type="primary" size="small" @click="handleJsonTagQuery">JSON Qry</el-button>
               </div>
               <div style="display: flex; align-items: center; gap: 6px; border-left: 1px solid #dcdfe6; padding-left: 15px;">
@@ -129,10 +129,10 @@
                   </el-image>
                 </template>
               </el-table-column>
-              <el-table-column prop="primary_species" label="Inferred Species" width="240">
+              <el-table-column prop="primary_species" label="Inferred Species" width="300">
                 <template #default="scope">
                   <el-tag :type="scope.row.primary_species === 'Alectura_lathami' ? 'success' : 'warning'" effect="dark">
-                    {{ scope.row.primary_species || 'Analyzing...' }}
+                    {{ formatSpeciesName(scope.row.primary_species) }}
                   </el-tag>
                 </template>
               </el-table-column>
@@ -225,6 +225,94 @@ const notificationForm = ref({
   tag: ''
 })
 
+const speciesMap = {
+  'alectura_lathami': 'australian brushturkey',
+  'antechinus_agilis': 'agile antechinus',
+  'bos_taurus': 'cattle',
+  'burhinus_grallarius': 'bush thick-knee',
+  'canis_familiaris': 'dingo',
+  'chalcophaps_longirostris': 'pacific emerald dove',
+  'colluricincla_harmonica': 'grey shrikethrush',
+  'corcorax_melanorhamphos': 'white-winged chough',
+  'dacelo_novaeguineae': 'laughing kookaburra',
+  'dama_dama': 'fallow deer',
+  'eopsaltria_australis': 'eastern yellow robin',
+  'felis_catus': 'domestic cat',
+  'geopelia_humeralis': 'bar-shouldered dove',
+  'gymnorhina_tibicen': 'australian magpie',
+  'homo_sapiens': 'human',
+  'isoodon_macrourus': 'northern brown bandicoot',
+  'lepus_europaeus': 'european hare',
+  'macropus_giganteus': 'eastern gray kangaroo',
+  'menura_novaehollandiae': 'superb lyrebird',
+  'mus_musculus': 'house mouse',
+  'oryctolagus_cuniculus': 'european rabbit',
+  'perameles_nasuta': 'long-nosed bandicoot',
+  'pitta_versicolor': 'noisy pitta',
+  'rattus_fuscipes': 'australian bush rat',
+  'rattus_rattus': 'black rat',
+  'strepera_graculina': 'pied currawong',
+  'sus_scrofa': 'wild boar',
+  'tachyglossus_aculeatus': 'australian echidna',
+  'thylogale_stigmatica': 'red-legged pademelon',
+  'trichosurus_caninus': 'short-eared possum',
+  'trichosurus_cunninghami': 'mountain brushtail opossum',
+  'trichosurus_vulpecula': 'common brushtail',
+  'varanus_varius': 'lace monitor',
+  'vombatus_ursinus': 'common wombat',
+  'vulpes_vulpes': 'red fox',
+  'wallabia_bicolor': 'swamp wallaby',
+  'canis_dingo': 'dingo',
+  'capra_hircus': 'domestic goat',
+  'casuarius_casuarius': 'southern cassowary',
+  'heteromyias_cinereifrons': 'grey-headed robin',
+  'hypsiprymnodon_moschatus': 'musky rat kangaroo',
+  'megapodius_reinwardt': 'orange-footed scrubfowl',
+  'notamacropus_rufogriseus': 'red-necked wallaby',
+  'orthonyx_spaldingii': 'northern chowchilla',
+  'uromys_caudimaculatus': 'giant white-tailed rat'
+}
+
+/**
+ * Format the display name: Convert a scientific name into "Common Name (Scientific Name)"
+ * (e.g., transforms 'Canis_familiaris' into 'Dingo (Canis_familiaris)').
+ * Automatically falls back to the original scientific name if the common name is not found.
+ */
+const formatSpeciesName = (scientificName) => {
+  if (!scientificName) return 'Analyzing...'
+  
+  const key = scientificName.toLowerCase().trim()
+  const commonName = speciesMap[key]
+  
+  if (commonName) {
+    const formattedCommon = commonName.charAt(0).toUpperCase() + commonName.slice(1)
+    return `${formattedCommon} (${scientificName})`
+  }
+  
+  return scientificName
+}
+
+/**
+ * Reverse Mapping: Converts a user-inputted common name (e.g., cattle) 
+ * back into the scientific name recognized by the backend (e.g., bos_taurus).
+ */
+const resolveScientificName = (input) => {
+  if (!input) return ''
+  const normalizedInput = input.trim().toLowerCase()
+  
+  for (const [scientific, common] of Object.entries(speciesMap)) {
+    if (common.toLowerCase() === normalizedInput) {
+      return scientific.charAt(0).toUpperCase() + scientific.slice(1)
+    }
+  }
+  
+  if (speciesMap[normalizedInput]) {
+    return normalizedInput.charAt(0).toUpperCase() + normalizedInput.slice(1)
+  }
+
+  return input.trim()
+}
+
 /**
  * Synchronizes layout display registry with backend observation store entries
  */
@@ -236,7 +324,8 @@ const fetchObservations = async () => {
     // Assemble query parameters based on active component state filters
     let queryParams = []
     if (searchQuery.value.species.trim()) {
-      queryParams.push(`species=${encodeURIComponent(searchQuery.value.species.trim())}`)
+      const resolvedSpecies = resolveScientificName(searchQuery.value.species)
+      queryParams.push(`species=${encodeURIComponent(resolvedSpecies)}`)
     }
     if (searchQuery.value.tag.trim()) {
       const tags = searchQuery.value.tag.trim().split(/\s+/).filter(Boolean)
@@ -316,15 +405,28 @@ const handleJsonTagQuery = async () => {
   try {
     isTableLoading.value = true
     const token = localStorage.getItem('id_token')
+    
     const parsedJson = JSON.parse(jsonTagQueryStr.value.trim())
-
-    const response = await axios.post(`${QUERY_BASE_URL}/api/v1/query/tags`, parsedJson, {
+    const resolvedJson = {}
+    for (const [key, value] of Object.entries(parsedJson)) {
+      const resolvedKey = resolveScientificName(key)
+      resolvedJson[resolvedKey] = value
+    }
+    
+    const response = await axios.post(`${QUERY_BASE_URL}/api/v1/query/tags`, resolvedJson, {
       headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' }
     })
+    
     if (response.data) {
-      observationList.value = response.data.files || []
+      observationList.value = response.data.items || response.data.files || []
       nextToken.value = ''
       hasMore.value = false
+      
+      if (observationList.value.length === 0) {
+        ElMessage.info('No matching records found for this query.')
+      } else {
+        ElMessage.success('Query successful!')
+      }
     }
   } catch (e) {
     console.error('Advanced JSON query error:', e)
@@ -332,7 +434,9 @@ const handleJsonTagQuery = async () => {
     observationList.value = []
     nextToken.value = ''
     hasMore.value = false
-  } finally { isTableLoading.value = false }
+  } finally { 
+    isTableLoading.value = false 
+  }
 }
 
 /**
