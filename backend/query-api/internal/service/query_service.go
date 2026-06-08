@@ -110,7 +110,18 @@ func (s *QueryService) FindBySpecies(
 		return nil, ErrSpeciesRequired
 	}
 
-	return s.repo.FindBySpecies(ctx, species)
+	files, err := s.repo.FindBySpecies(ctx, species)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := s.addDisplayURLs(ctx, files); err != nil {
+		return nil, err
+	}
+
+	model.NormalizeMediaFilesTimes(files)
+
+	return files, nil
 }
 
 func (s *QueryService) FindByTagCounts(
@@ -129,7 +140,18 @@ func (s *QueryService) FindByTagCounts(
 		}
 	}
 
-	return s.repo.FindByTagCounts(ctx, cleanRequired)
+	files, err := s.repo.FindByTagCounts(ctx, cleanRequired)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := s.addDisplayURLs(ctx, files); err != nil {
+		return nil, err
+	}
+
+	model.NormalizeMediaFilesTimes(files)
+
+	return files, nil
 }
 
 func (s *QueryService) FindOriginalByThumbnailURL(
@@ -196,6 +218,8 @@ func (s *QueryService) QueryByFile(
 		return model.FileQueryResponse{}, err
 	}
 
+	model.NormalizeMediaFilesTimes(files)
+
 	return model.FileQueryResponse{
 		DetectedTags: detectedTags,
 		Items:        files,
@@ -246,12 +270,19 @@ func (s *QueryService) UpdateTags(
 		return nil, repository.ErrInvalidTagOperation
 	}
 
-	return s.repo.UpdateTags(
+	files, err := s.repo.UpdateTags(
 		ctx,
 		cleanURLs,
 		cleanTags,
 		*operation,
 	)
+	if err != nil {
+		return nil, err
+	}
+
+	model.NormalizeMediaFilesTimes(files)
+
+	return files, nil
 }
 
 // DeleteFiles validates URLs and removes matched media records.
@@ -351,6 +382,8 @@ func (s *QueryService) ListObservations(
 	if err := s.addDisplayURLs(ctx, page.Items); err != nil {
 		return repository.ObservationPage{}, err
 	}
+
+	model.NormalizeMediaFilesTimes(page.Items)
 
 	return page, nil
 }
